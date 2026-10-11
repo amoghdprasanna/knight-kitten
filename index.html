@@ -56,6 +56,8 @@
   #r-stats b { color: var(--gold); }
   #r-record { color: #b5e08a; font: 12px 'Press Start 2P', monospace; margin: 6px 0; }
   .help { text-align: left; line-height: 1.6; font-size: 15px; }
+  /* The `font` shorthand above resets ligatures; Pixelify Sans turns "fi" into one glyph. */
+  .card, .card *, .btn { font-variant-ligatures: none !important; font-feature-settings: 'liga' 0, 'clig' 0 !important; }
   #game {
     position: absolute;
     left: 50%;
