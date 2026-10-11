@@ -24,7 +24,7 @@ function startArenaMode(id) {
   unlockAudio();
   closePanels();
   scene = 'arena';
-  document.body.classList.remove('journey');
+  document.body.classList.remove('journey', 'city');
   rng = id === 'daily' ? seeded(hashString('knight-kitten-' + todayKey())) : Math.random;
   newArenaGame(id, id === 'daily' ? dailyMods() : []);
   MODE = ARENA_MODES[id];

@@ -17,6 +17,15 @@ controls appear automatically), and supports gamepads.
   four waves.
 - **Boss Rush**: all four bosses back to back against the clock.
 - **Daily**: the same seeded run for everyone each day, with two modifiers.
+- **Bengaluru**: free roam around a pocket-sized Bengaluru: Vidhana Soudha,
+  the High Court, Cubbon Park, UB City, Chinnaswamy Stadium, the Race Course
+  and Holiday Inn, Lalbagh (Glass House, the rock, the flower clock), MTR and
+  Jayanagar's pink tabebuia "cherry blossom" avenues, with R.K. Narayan's
+  Malgudi next door (the station and steam train, Swami under the banyan, the
+  Sarayu ghats). Collect a postcard at each of 16 landmarks, ride the Purple
+  and Green lines of Namma Metro, talk to people, and watch day turn to night.
+  The minimap and city map (M) let you set a destination; V switches between
+  street, drone, Malgudi sketch and close-up views.
 
 Fish collected in any mode buy capes, bows and armor in the shop.
 
@@ -29,6 +38,7 @@ Fish collected in any mode buy capes, bows and armor in the shop.
 | Jump (press twice to double jump) | K / Space | JUMP (Journey: hold left side) | A |
 | Dash (hold to sprint) | L / Shift | DASH | B |
 | Pause | Esc / P | II | Start |
+| Map / view (Bengaluru) | M / V | MAP / VIEW | Select / LB |
 
 In the arena, three hits make a launcher combo and jump + attack is a ground
 pound. Rocks, hay bales, haystacks, crates, stumps and the well can be climbed.
@@ -57,4 +67,5 @@ worker) only runs when served over http(s).
 - `world.js`: the arena world, time of day, critters
 - `arena.js`, `modes.js`: arena gameplay and its four modes
 - `journey.js`: Journey mode
+- `city.js`: Bengaluru mode (city layout, art, traffic, metro, views, map)
 - `vendor/matter.min.js`: [Matter.js](https://brm.io/matter-js/) 0.20.0 (MIT)

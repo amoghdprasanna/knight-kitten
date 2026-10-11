@@ -104,6 +104,10 @@ const MOODS = {
   night: { bpm: 80, root: 55, prog: [0, 8, 3, 10], minor: true, lead: 'triangle' },
   boss: { bpm: 144, root: 52, prog: [0, 0, 3, 5], minor: true, lead: 'square' },
   ending: { bpm: 72, root: 60, prog: [0, 9, 5, 7], minor: false, lead: 'triangle' },
+  // Bengaluru: a flat second for a Mayamalavagowla flavour, a gentle Malgudi, a brisk metro.
+  city: { bpm: 104, root: 62, prog: [0, 1, 0, 8], minor: false, lead: 'triangle' },
+  malgudi: { bpm: 84, root: 60, prog: [0, 5, 7, 5], minor: false, lead: 'triangle' },
+  metro: { bpm: 126, root: 64, prog: [0, 5, 0, 7], minor: false, lead: 'square' },
 };
 const music = { mood: 'title', step: 0, next: 0, on: true };
 

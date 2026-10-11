@@ -5,7 +5,7 @@
 // game after each simulation step; `mx`/`my` is the movement vector.
 const input = {
   mx: 0, my: 0,
-  pressed: { attack: false, jump: false, dash: false, pause: false, any: false },
+  pressed: { attack: false, jump: false, dash: false, pause: false, map: false, view: false, any: false },
   held: { attack: false, jump: false, dash: false },
   mode: 'keys',               // keys | touch | pad
 };
@@ -16,6 +16,8 @@ const KEYMAP = {
   jump: ['KeyK', 'KeyX', 'Space'],
   dash: ['KeyL', 'KeyC', 'ShiftLeft', 'ShiftRight'],
   pause: ['Escape', 'KeyP'],
+  map: ['Tab'],
+  view: ['KeyV'],
 };
 const keysDown = new Set();
 
@@ -38,11 +40,12 @@ window.addEventListener('keydown', e => {
     unlockAudio();
     return;
   }
-  if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space'].includes(e.code)) e.preventDefault();
+  if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space', 'Tab'].includes(e.code)) e.preventDefault();
   keysDown.add(e.code);
   if (e.repeat) return;
   unlockAudio();
-  if (e.code === 'KeyM') { toggleSound(); return; }
+  // M opens the map in Bengaluru and toggles sound everywhere else.
+  if (e.code === 'KeyM') { if (scene === 'city') press('map'); else toggleSound(); return; }
   input.mode = 'keys';
   for (const [action, codes] of Object.entries(KEYMAP)) if (codes.includes(e.code)) press(action);
   input.pressed.any = true;
@@ -108,7 +111,7 @@ function setupTouch() {
   zone.addEventListener('pointerup', end);
   zone.addEventListener('pointercancel', end);
 
-  for (const [id, action] of [['b-attack', 'attack'], ['b-jump', 'jump'], ['b-dash', 'dash'], ['b-pause', 'pause']]) {
+  for (const [id, action] of [['b-attack', 'attack'], ['b-jump', 'jump'], ['b-dash', 'dash'], ['b-pause', 'pause'], ['b-map', 'map'], ['b-view', 'view']]) {
     const el = document.getElementById(id);
     el.addEventListener('pointerdown', e => {
       e.preventDefault();
@@ -161,7 +164,7 @@ function pollPad() {
       for (let i = 0; i < 16; i++) padPrev[i] = b(i);
       return { x: 0, y: 0, held: {} };
     }
-    const map = [[2, 'attack'], [3, 'attack'], [0, 'jump'], [1, 'dash'], [5, 'dash'], [9, 'pause']];
+    const map = [[2, 'attack'], [3, 'attack'], [0, 'jump'], [1, 'dash'], [5, 'dash'], [9, 'pause'], [8, 'map'], [4, 'view']];
     for (const [i, action] of map) {
       if (b(i) && !padPrev[i]) { press(action); input.mode = 'pad'; }
     }

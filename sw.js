@@ -1,8 +1,8 @@
 // Caches the game so it keeps working offline once installed.
-const CACHE = 'knight-kitten-v4';
+const CACHE = 'knight-kitten-v5';
 const FILES = [
   './', 'index.html', 'manifest.webmanifest', 'vendor/matter.min.js',
-  'sprites.js', 'ui.js', 'input.js', 'audio.js', 'core.js', 'world.js', 'arena.js', 'modes.js', 'journey.js', 'main.js',
+  'sprites.js', 'ui.js', 'input.js', 'audio.js', 'core.js', 'world.js', 'arena.js', 'modes.js', 'journey.js', 'city.js', 'main.js',
   'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png',
 ];
 

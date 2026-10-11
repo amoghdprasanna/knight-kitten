@@ -39,6 +39,9 @@
   #ui { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); pointer-events: none; }
   body.in-menu .btn, body.in-menu #stick-zone { display: none; }
   body.journey #stick { display: none !important; }
+  .btn.city-only { display: none; }
+  body.city .btn.city-only { display: flex; }
+  body.in-menu .btn.city-only { display: none; }
   .panel { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(16,14,13,0.55); }
   .panel.open { display: flex; }
   .card { background: rgba(29,24,22,0.94); border: 3px solid var(--paper); box-shadow: 0 6px 0 var(--ink); padding: 18px 22px; max-width: 760px; width: calc(100% - 40px); max-height: 92vh; overflow: auto; text-align: center; color: var(--paper); font: 600 16px 'Pixelify Sans', sans-serif; }
@@ -91,6 +94,12 @@
   #b-attack { width: 92px; height: 92px; font-size: 13px; right: calc(26px + env(safe-area-inset-right)); bottom: calc(34px + env(safe-area-inset-bottom)); }
   #b-jump { width: 66px; height: 66px; right: calc(130px + env(safe-area-inset-right)); bottom: calc(22px + env(safe-area-inset-bottom)); }
   #b-dash { width: 66px; height: 66px; right: calc(42px + env(safe-area-inset-right)); bottom: calc(138px + env(safe-area-inset-bottom)); }
+  #b-map, #b-view {
+    width: 52px; height: 40px; border-radius: 10px; font-size: 9px;
+    top: 24%; box-shadow: 0 3px 0 var(--ink);
+  }
+  #b-map { left: calc(60px + env(safe-area-inset-left)); }
+  #b-view { left: calc(122px + env(safe-area-inset-left)); }
   #b-pause {
     width: 40px; height: 40px; border-radius: 10px; font-size: 10px;
     top: 24%; left: calc(10px + env(safe-area-inset-left)); box-shadow: 0 3px 0 var(--ink);
@@ -132,6 +141,8 @@
   <div class="btn" id="b-jump">JUMP</div>
   <div class="btn" id="b-dash">DASH</div>
   <div class="btn" id="b-pause">II</div>
+  <div class="btn city-only" id="b-map">MAP</div>
+  <div class="btn city-only" id="b-view">VIEW</div>
 </div>
 
 <div class="panel" id="p-title"><div class="card">
@@ -142,6 +153,7 @@
     <button id="m-endless">Endless<small id="rec-endless"></small></button>
     <button id="m-bossrush">Boss Rush<small id="rec-bossrush"></small></button>
     <button id="m-daily">Daily<small id="rec-daily"></small></button>
+    <button id="m-city">Bengaluru<small id="rec-city"></small></button>
   </div>
   <div class="row"><button id="m-continue"></button></div>
   <div class="row"><button id="m-shop">Shop (<span id="fish-count">0</span> fish)</button><button id="m-help">How to play</button><button id="m-sound-title">Sound</button></div>
@@ -150,6 +162,7 @@
 <div class="panel" id="p-help"><div class="card"><h2>HOW TO PLAY</h2><div class="help">
   <b>Arena</b> (Story, Endless, Boss Rush, Daily): move with WASD / arrows / stick. J attack (3 hits = launcher), K jump (twice = double jump), L dash (hold to sprint). Jump + attack = ground pound. Climb rocks, bales and haystacks. Stop alarms reaching the cottage door.<br>
   <b>Journey</b>: hold jump to charge a higher leap, press again in the air to double jump, attack to slash. Rescue stray cats, collect fish, reach Grandma's.<br>
+  <b>Bengaluru</b>: explore a pocket-sized Bengaluru and Malgudi. Walk to landmarks for postcards, press K / JUMP at a metro station to ride, talk to people and pat cows. M (or MAP) opens the city map to set a destination; V (or VIEW) switches street, drone and Malgudi sketch views.<br>
   <b>Touch</b>: left side = stick (Journey: jump), buttons on the right. <b>Gamepad</b>: A jump, X attack, B dash.</div>
   <div class="row"><button id="help-back" data-back>Back</button></div></div></div>
 <div class="panel" id="p-results"><div class="card"><h2 id="r-title"></h2><p id="r-sub"></p><div id="r-record">NEW RECORD!</div><div id="r-stats"></div><div class="row" id="r-buttons"></div></div></div>
@@ -167,6 +180,7 @@
 <script src="arena.js"></script>
 <script src="modes.js"></script>
 <script src="journey.js"></script>
+<script src="city.js"></script>
 <script src="main.js"></script>
 </body>
 </html>

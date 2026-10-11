@@ -58,6 +58,7 @@ const SAVE = Object.assign({
   equip: { cape: 'cream', bow: 'pink', armor: 'steel' },
   records: { story: {}, endless: {}, bossrush: {}, daily: {}, journey: {} },
   journey: { reached: 0, cats: [] },
+  city: { stamps: [] },
   seenIntro: false,
 }, (() => { try { return JSON.parse(localStorage.getItem(SAVE_KEY)) || {}; } catch { return {}; } })());
 

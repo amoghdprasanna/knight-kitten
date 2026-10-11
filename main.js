@@ -20,7 +20,9 @@ function resumeGame() {
 function goToTitle() {
   paused = false;
   scene = 'menu';
-  document.body.classList.remove('journey');
+  document.body.classList.remove('journey', 'city');
+  BL.active = false;
+  if (canvas.width !== W) resize();
   rng = Math.random;
   clearEnts();
   newArenaGame('story');
@@ -41,6 +43,7 @@ function refreshTitle() {
   set('rec-endless', r.endless.wave ? `Best wave ${r.endless.wave}` : 'How long can you last?');
   set('rec-bossrush', r.bossrush.time ? `Best ${fmtTime(r.bossrush.time)}` : 'Beat the clock');
   set('rec-daily', r.daily[todayKey()] ? `Today ${r.daily[todayKey()]}` : todayKey());
+  set('rec-city', SAVE.city.stamps.length ? `Postcards ${SAVE.city.stamps.length} of ${B_POSTCARDS.length}` : 'Explore the city');
   set('fish-count', `${SAVE.fish}`);
   const cont = el('m-continue');
   const reached = SAVE.journey.reached || 0;
@@ -84,6 +87,7 @@ function setupMenus() {
   const on = (id, fn) => el(id).addEventListener('click', () => { sfxSafe('blip'); fn(); });
   for (const m of ['story', 'endless', 'bossrush', 'daily']) on(`m-${m}`, () => { lastMode = m; startArenaMode(m); });
   on('m-journey', () => { lastMode = 'journey'; startJourney(0); });
+  on('m-city', () => { lastMode = 'city'; startCity(); });
   on('m-continue', () => { lastMode = 'journey'; startJourney(SAVE.journey.reached || 0); });
   on('m-shop', () => { refreshShop(); openPanel('p-shop'); });
   on('m-help', () => openPanel('p-help'));
@@ -91,7 +95,13 @@ function setupMenus() {
   on('shop-back', () => { refreshTitle(); openPanel('p-title'); });
   on('help-back', () => openPanel('p-title'));
   on('p-resume', resumeGame);
-  on('p-restart', () => { paused = false; closePanels(); if (lastMode === 'journey') startJourney(J.checkpoint.chapter); else startArenaMode(lastMode); });
+  on('p-restart', () => {
+    paused = false;
+    closePanels();
+    if (lastMode === 'journey') startJourney(J.checkpoint.chapter);
+    else if (lastMode === 'city') startCity();
+    else startArenaMode(lastMode);
+  });
   on('p-sound', () => { toggleSound(); el('p-sound').textContent = `Sound: ${soundOn ? 'on' : 'off'}`; });
   on('p-quit', goToTitle);
   document.addEventListener('visibilitychange', () => { if (document.hidden && scene !== 'menu' && !menuOpen()) pauseGame(); });
@@ -127,6 +137,7 @@ function frame(now) {
   while (acc >= STEP && steps < 5) {
     if (!paused) {
       if (scene === 'journey') journeyTick(STEP);
+      else if (scene === 'city') cityTick(STEP);
       else arenaTick(STEP);
     }
     consumeInput();
@@ -136,6 +147,7 @@ function frame(now) {
   if (steps === 5) acc = 0;
   uiClear();
   if (scene === 'journey') { journeyDraw(); journeyUI(); }
+  else if (scene === 'city') { cityDraw(); cityUI(); }
   else { arenaDraw(); if (scene === 'arena') drawArenaUI(); }
   requestAnimationFrame(frame);
 }

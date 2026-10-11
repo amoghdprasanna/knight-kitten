@@ -80,6 +80,7 @@ function startJourney(fromChapter = 0) {
   closePanels();
   scene = 'journey';
   document.body.classList.add('journey');
+  document.body.classList.remove('city');
   rng = Math.random;
   const start = landStart(fromChapter);
   Object.assign(J, {
