@@ -11,7 +11,11 @@
 const uiCanvas = document.getElementById('ui');
 const uctx = uiCanvas.getContext('2d');
 let U = 1;                                   // device pixels per game pixel
-const UI_FONT = '"Pixelify Sans", "Trebuchet MS", sans-serif';
+// Jersey 10 keeps C, G and O distinct at small sizes. It is drawn a little
+// larger than the nominal size and only comes in one weight.
+const UI_FONT = '"Jersey 10", "Trebuchet MS", sans-serif';
+const UI_SCALE = 1.28;
+const fontSpec = (size, font = UI_FONT, weight = 700) => (font === UI_FONT ? `400 ${size * UI_SCALE}px ${font}` : `${weight} ${size}px ${font}`);
 const TITLE_FONT = '"Press Start 2P", monospace';
 const INK = '#1d1816';
 
@@ -30,7 +34,7 @@ function uiClear() {
   uctx.setTransform(U, 0, 0, U, 0, 0);
 }
 
-// Pixelify Sans joins "fi"/"fl" into one glyph that reads like a different
+// Some pixel fonts join "fi"/"fl" into one glyph that reads like a different
 // letter; a zero-width non-joiner keeps them apart on the canvas.
 const noLig = s => String(s).replace(/f(?=[ilf])/g, 'f\u200C');
 
@@ -40,13 +44,13 @@ function ut(str, x, y, o = {}) {
   const size = o.size || 6;
   uctx.save();
   uctx.globalAlpha = o.alpha === undefined ? 1 : o.alpha;
-  uctx.font = `${o.weight || 700} ${size}px ${o.font || UI_FONT}`;
+  uctx.font = fontSpec(size, o.font || UI_FONT, o.weight || 700);
   uctx.textAlign = o.align || 'left';
   uctx.textBaseline = o.base || 'top';
   const w = uctx.measureText(str).width;
   if (o.outline !== null) {
     uctx.lineJoin = 'round';
-    uctx.lineWidth = o.stroke || Math.max(1.2, size * 0.32);
+    uctx.lineWidth = o.stroke || Math.max(1, size * 0.26);
     uctx.strokeStyle = o.outline || INK;
     uctx.strokeText(str, x, y);
   }
@@ -61,7 +65,7 @@ function utitle(str, x, y, size, color, align = 'center', alpha = 1) {
 }
 
 function uwidth(str, size = 6, font = UI_FONT, weight = 700) {
-  uctx.font = `${weight} ${size}px ${font}`;
+  uctx.font = fontSpec(size, font, weight);
   return uctx.measureText(noLig(str)).width;
 }
 

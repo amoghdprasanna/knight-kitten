@@ -14,7 +14,7 @@
 <link rel="icon" type="image/png" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600;700&family=Press+Start+2P&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Jersey+10&family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #161a17;
@@ -44,22 +44,22 @@
   body.in-menu .btn.city-only { display: none; }
   .panel { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(16,14,13,0.55); }
   .panel.open { display: flex; }
-  .card { background: rgba(29,24,22,0.94); border: 3px solid var(--paper); box-shadow: 0 6px 0 var(--ink); padding: 18px 22px; max-width: 760px; width: calc(100% - 40px); max-height: 92vh; overflow: auto; text-align: center; color: var(--paper); font: 600 16px 'Pixelify Sans', sans-serif; }
+  .card { background: rgba(29,24,22,0.94); border: 3px solid var(--paper); box-shadow: 0 6px 0 var(--ink); padding: 18px 22px; max-width: 760px; width: calc(100% - 40px); max-height: 92vh; overflow: auto; text-align: center; color: var(--paper); font: 400 20px 'Jersey 10', sans-serif; letter-spacing: 0.3px; }
   .card h1 { font: 26px 'Press Start 2P', monospace; color: var(--gold); margin: 4px 0 6px; text-shadow: 3px 3px 0 var(--ink); }
   .card h2 { font: 16px 'Press Start 2P', monospace; color: var(--gold); margin: 4px 0 12px; }
   .card p { margin: 4px 0 12px; color: #d8d0c2; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 10px 0; }
-  .card button { font: 700 16px 'Pixelify Sans', sans-serif; color: var(--ink); background: var(--paper); border: 3px solid var(--ink); box-shadow: 0 4px 0 var(--ink); padding: 10px 12px; cursor: pointer; }
-  .card button small { display: block; font-weight: 600; font-size: 13px; color: #5d5148; margin-top: 3px; }
+  .card button { font: 400 21px 'Jersey 10', sans-serif; color: var(--ink); background: var(--paper); border: 3px solid var(--ink); box-shadow: 0 4px 0 var(--ink); padding: 10px 12px; cursor: pointer; }
+  .card button small { display: block; font-weight: 400; font-size: 17px; color: #5d5148; margin-top: 3px; }
   .card button:focus-visible, .card button:hover { background: var(--gold); outline: none; }
   .card button.locked { opacity: 0.55; }
   .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 8px; }
   .sw { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--ink); margin-right: 6px; vertical-align: -2px; }
-  #r-stats div { display: flex; justify-content: space-between; max-width: 340px; margin: 4px auto; font-size: 17px; }
+  #r-stats div { display: flex; justify-content: space-between; max-width: 340px; margin: 4px auto; font-size: 21px; }
   #r-stats b { color: var(--gold); }
   #r-record { color: #b5e08a; font: 12px 'Press Start 2P', monospace; margin: 6px 0; }
-  .help { text-align: left; line-height: 1.6; font-size: 15px; }
-  /* The `font` shorthand above resets ligatures; Pixelify Sans turns "fi" into one glyph. */
+  .help { text-align: left; line-height: 1.45; font-size: 19px; }
+  /* The `font` shorthand above resets ligatures; keep "fi" as two letters. */
   .card, .card *, .btn { font-variant-ligatures: none !important; font-feature-settings: 'liga' 0, 'clig' 0 !important; }
   #game {
     position: absolute;
@@ -162,7 +162,7 @@
 <div class="panel" id="p-help"><div class="card"><h2>HOW TO PLAY</h2><div class="help">
   <b>Arena</b> (Story, Endless, Boss Rush, Daily): move with WASD / arrows / stick. J attack (3 hits = launcher), K jump (twice = double jump), L dash (hold to sprint). Jump + attack = ground pound. Climb rocks, bales and haystacks. Stop alarms reaching the cottage door.<br>
   <b>Journey</b>: hold jump to charge a higher leap, press again in the air to double jump, attack to slash. Rescue stray cats, collect fish, reach Grandma's.<br>
-  <b>Bengaluru</b>: explore a pocket-sized Bengaluru and Malgudi. Walk to landmarks for postcards, press K / JUMP at a metro station to ride, talk to people and pat cows. M (or MAP) opens the city map to set a destination; V (or VIEW) switches street, drone and Malgudi sketch views.<br>
+  <b>Bengaluru</b>: explore a pocket-sized Bengaluru and Malgudi. Walk to landmarks for postcards, press K / JUMP at a metro station to ride Namma Metro, or at KSR or Malgudi station for the Malgudi Express. Talk to people and pat cows. M (or MAP) opens the city map to set a destination; V (or VIEW) switches street, drone and Malgudi sketch views.<br>
   <b>Touch</b>: left side = stick (Journey: jump), buttons on the right. <b>Gamepad</b>: A jump, X attack, B dash.</div>
   <div class="row"><button id="help-back" data-back>Back</button></div></div></div>
 <div class="panel" id="p-results"><div class="card"><h2 id="r-title"></h2><p id="r-sub"></p><div id="r-record">NEW RECORD!</div><div id="r-stats"></div><div class="row" id="r-buttons"></div></div></div>
@@ -180,6 +180,8 @@
 <script src="arena.js"></script>
 <script src="modes.js"></script>
 <script src="journey.js"></script>
+<script src="city-data.js"></script>
+<script src="city-art.js"></script>
 <script src="city.js"></script>
 <script src="main.js"></script>
 </body>

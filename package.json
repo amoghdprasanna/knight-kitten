@@ -1,0 +1,15 @@
+{
+  "name": "knight-kitten",
+  "private": true,
+  "description": "Knight Kitten & the Tiny Inconveniences: a pixel-art browser game.",
+  "type": "module",
+  "scripts": {
+    "test": "node tests/run.mjs",
+    "test:quick": "node tests/run.mjs --quick",
+    "serve": "python3 -m http.server 8000"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^23.11.1",
+    "word-list": "^4.1.0"
+  }
+}

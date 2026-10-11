@@ -48,7 +48,7 @@ function refreshTitle() {
   const cont = el('m-continue');
   const reached = SAVE.journey.reached || 0;
   cont.style.display = reached > 0 ? '' : 'none';
-  cont.textContent = `Continue journey: ${LANDS[reached].name.toLowerCase()}`;
+  cont.textContent = `Continue journey: ${LANDS[reached].name.toLowerCase().replace(/(^|\s)\w/g, c => c.toUpperCase())}`;
   set('m-sound-title', `Sound: ${soundOn ? 'on' : 'off'}`);
 }
 

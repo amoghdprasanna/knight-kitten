@@ -17,15 +17,19 @@ controls appear automatically), and supports gamepads.
   four waves.
 - **Boss Rush**: all four bosses back to back against the clock.
 - **Daily**: the same seeded run for everyone each day, with two modifiers.
-- **Bengaluru**: free roam around a pocket-sized Bengaluru: Vidhana Soudha,
-  the High Court, Cubbon Park, UB City, Chinnaswamy Stadium, the Race Course
-  and Holiday Inn, Lalbagh (Glass House, the rock, the flower clock), MTR and
-  Jayanagar's pink tabebuia "cherry blossom" avenues, with R.K. Narayan's
-  Malgudi next door (the station and steam train, Swami under the banyan, the
-  Sarayu ghats). Collect a postcard at each of 16 landmarks, ride the Purple
-  and Green lines of Namma Metro, talk to people, and watch day turn to night.
-  The minimap and city map (M) let you set a destination; V switches between
-  street, drone, Malgudi sketch and close-up views.
+- **Bengaluru**: free roam around a pocket-sized Bengaluru laid out after
+  the real city: Malleswaram and Sankey Tank, Bangalore Palace, the Race
+  Course and Holiday Inn, Majestic (KSR station, the bus station), Vidhana
+  Soudha and the High Court, Cubbon Park, Chinnaswamy Stadium, MG Road and
+  Brigade Road, Commercial Street, Ulsoor Lake, Indiranagar, K.R. Market,
+  the fort and Tipu Sultan's Summer Palace, Basavanagudi (Bull Temple,
+  Bugle Rock, Vidyarthi Bhavan), Lalbagh, Jayanagar's pink tabebuia
+  "cherry blossom" avenues, Koramangala and Silk Board. R.K. Narayan's
+  Malgudi lies across the river Sarayu, linked to KSR by the steam-hauled
+  Malgudi Express. Collect a postcard at each landmark, ride the Purple and
+  Green lines of Namma Metro (change at Majestic), talk to people, and watch
+  day turn to night. The minimap and city map (M) let you set a destination;
+  V switches between street, drone, Malgudi sketch and close-up views.
 
 Fish collected in any mode buy capes, bows and armor in the shop.
 
@@ -67,5 +71,28 @@ worker) only runs when served over http(s).
 - `world.js`: the arena world, time of day, critters
 - `arena.js`, `modes.js`: arena gameplay and its four modes
 - `journey.js`: Journey mode
-- `city.js`: Bengaluru mode (city layout, art, traffic, metro, views, map)
+- `city-data.js`, `city-art.js`, `city.js`: Bengaluru mode (map layout and
+  text, pixel art, and the engine: traffic, trains, views, map, HUD)
+- `tests/`: the test pipeline
 - `vendor/matter.min.js`: [Matter.js](https://brm.io/matter-js/) 0.20.0 (MIT)
+
+## Tests
+
+`npm test` runs the game in headless Chrome and checks that it boots
+cleanly, that every mode survives several minutes of a bot playing it, that
+the Bengaluru map has no overlapping buildings, unreachable landmarks or
+signs that don't fit, that every metro and steam ride arrives, and that
+every player-facing string is spelled correctly. It also saves screenshots
+of key scenes to `tests/output/` for a human to look over.
+
+```sh
+npm install
+npm test               # everything (about 20 seconds)
+npm test -- --quick    # shorter bot runs
+npm test -- city text  # only some suites: boot, text, city, modes, shots
+```
+
+Chrome is found automatically, or set `CHROME_PATH`. Real names (places,
+Kannada words) that the spell check doesn't know go in
+`tests/allowed-words.txt`. The same tests run on GitHub Actions for every
+push, with the screenshots attached to the run.
