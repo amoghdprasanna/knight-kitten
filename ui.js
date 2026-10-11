@@ -30,8 +30,13 @@ function uiClear() {
   uctx.setTransform(U, 0, 0, U, 0, 0);
 }
 
+// Pixelify Sans joins "fi"/"fl" into one glyph that reads like a different
+// letter; a zero-width non-joiner keeps them apart on the canvas.
+const noLig = s => String(s).replace(/f(?=[ilf])/g, 'f\u200C');
+
 // Outlined text. Sizes are in game pixels. Returns the width in game pixels.
 function ut(str, x, y, o = {}) {
+  str = noLig(str);
   const size = o.size || 6;
   uctx.save();
   uctx.globalAlpha = o.alpha === undefined ? 1 : o.alpha;
@@ -57,7 +62,7 @@ function utitle(str, x, y, size, color, align = 'center', alpha = 1) {
 
 function uwidth(str, size = 6, font = UI_FONT, weight = 700) {
   uctx.font = `${weight} ${size}px ${font}`;
-  return uctx.measureText(str).width;
+  return uctx.measureText(noLig(str)).width;
 }
 
 function uimg(img, x, y, w = img.width, h = img.height, alpha = 1) {

@@ -34,7 +34,8 @@
     -webkit-touch-callout: none;
     -webkit-tap-highlight-color: transparent;
   }
-  body { position: fixed; inset: 0; }
+  body { position: fixed; inset: 0; font-variant-ligatures: none; font-feature-settings: 'liga' 0, 'clig' 0; }
+  button { font-variant-ligatures: none; font-feature-settings: 'liga' 0, 'clig' 0; }
   #ui { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); pointer-events: none; }
   body.in-menu .btn, body.in-menu #stick-zone { display: none; }
   body.journey #stick { display: none !important; }
