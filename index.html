@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Knight Kitten">
+<meta name="theme-color" content="#161a17">
+<title>Knight Kitten</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600;700&family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #161a17;
+    --ink: #1d1816;
+    --paper: #f1ebdf;
+    --gold: #ffd25e;
+  }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body { position: fixed; inset: 0; }
+  #ui { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); pointer-events: none; }
+  body.in-menu .btn, body.in-menu #stick-zone { display: none; }
+  body.journey #stick { display: none !important; }
+  .panel { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(16,14,13,0.55); }
+  .panel.open { display: flex; }
+  .card { background: rgba(29,24,22,0.94); border: 3px solid var(--paper); box-shadow: 0 6px 0 var(--ink); padding: 18px 22px; max-width: 760px; width: calc(100% - 40px); max-height: 92vh; overflow: auto; text-align: center; color: var(--paper); font: 600 16px 'Pixelify Sans', sans-serif; }
+  .card h1 { font: 26px 'Press Start 2P', monospace; color: var(--gold); margin: 4px 0 6px; text-shadow: 3px 3px 0 var(--ink); }
+  .card h2 { font: 16px 'Press Start 2P', monospace; color: var(--gold); margin: 4px 0 12px; }
+  .card p { margin: 4px 0 12px; color: #d8d0c2; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 10px 0; }
+  .card button { font: 700 16px 'Pixelify Sans', sans-serif; color: var(--ink); background: var(--paper); border: 3px solid var(--ink); box-shadow: 0 4px 0 var(--ink); padding: 10px 12px; cursor: pointer; }
+  .card button small { display: block; font-weight: 600; font-size: 13px; color: #5d5148; margin-top: 3px; }
+  .card button:focus-visible, .card button:hover { background: var(--gold); outline: none; }
+  .card button.locked { opacity: 0.55; }
+  .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 8px; }
+  .sw { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--ink); margin-right: 6px; vertical-align: -2px; }
+  #r-stats div { display: flex; justify-content: space-between; max-width: 340px; margin: 4px auto; font-size: 17px; }
+  #r-stats b { color: var(--gold); }
+  #r-record { color: #b5e08a; font: 12px 'Press Start 2P', monospace; margin: 6px 0; }
+  .help { text-align: left; line-height: 1.6; font-size: 15px; }
+  #game {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    image-rendering: crisp-edges;
+    image-rendering: pixelated;
+  }
+
+  /* On-screen controls, shown once a touch is detected. */
+  #touch { position: absolute; inset: 0; display: none; pointer-events: none; }
+  body.touch #touch { display: block; }
+  body.menu-screen .btn { display: none; }
+  #stick-zone { position: absolute; left: 0; top: 15%; bottom: 0; width: 50%; pointer-events: auto; }
+  #stick {
+    position: fixed; width: 116px; height: 116px; margin: -58px 0 0 -58px; border-radius: 50%;
+    border: 3px solid rgba(241, 235, 223, 0.55); background: rgba(29, 24, 22, 0.28); display: none;
+  }
+  #knob {
+    position: absolute; left: 50%; top: 50%; width: 50px; height: 50px; margin: -25px 0 0 -25px;
+    border-radius: 50%; background: rgba(241, 235, 223, 0.85); box-shadow: 0 0 0 3px var(--ink);
+  }
+  .btn {
+    position: absolute; pointer-events: auto; border-radius: 50%;
+    border: 3px solid var(--ink); background: rgba(241, 235, 223, 0.82);
+    font: 10px 'Press Start 2P', monospace; color: var(--ink);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 0 var(--ink); touch-action: none;
+  }
+  .btn.down { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); background: var(--gold); }
+  #b-attack { width: 92px; height: 92px; font-size: 13px; right: calc(26px + env(safe-area-inset-right)); bottom: calc(34px + env(safe-area-inset-bottom)); }
+  #b-jump { width: 66px; height: 66px; right: calc(130px + env(safe-area-inset-right)); bottom: calc(22px + env(safe-area-inset-bottom)); }
+  #b-dash { width: 66px; height: 66px; right: calc(42px + env(safe-area-inset-right)); bottom: calc(138px + env(safe-area-inset-bottom)); }
+  #b-pause {
+    width: 40px; height: 40px; border-radius: 10px; font-size: 10px;
+    top: 24%; left: calc(10px + env(safe-area-inset-left)); box-shadow: 0 3px 0 var(--ink);
+  }
+
+  /* Pause menu. */
+  #menu {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    flex-direction: column; gap: 14px; background: rgba(16, 14, 13, 0.7);
+  }
+  #menu.open { display: flex; }
+  #menu h2 { font: 20px 'Press Start 2P', monospace; color: var(--gold); margin: 0 0 10px; text-shadow: 3px 3px 0 var(--ink); }
+  #menu button {
+    font: 12px 'Press Start 2P', monospace; color: var(--ink); background: var(--paper);
+    border: 3px solid var(--ink); box-shadow: 0 4px 0 var(--ink); padding: 14px 22px; min-width: 220px; cursor: pointer;
+  }
+  #menu button:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
+  #menu p { font: 8px 'Press Start 2P', monospace; color: #c9c2b6; line-height: 2; text-align: center; margin: 10px 16px 0; }
+
+  /* Ask phones and tablets to turn sideways. */
+  #rotate {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column;
+    background: var(--bg); color: var(--paper); font: 12px 'Press Start 2P', monospace; text-align: center; line-height: 2;
+  }
+  #rotate span { font-size: 40px; color: var(--gold); }
+  @media (orientation: portrait) and (pointer: coarse) {
+    #rotate { display: flex; }
+  }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<canvas id="ui"></canvas>
+
+<div id="touch">
+  <div id="stick-zone"></div>
+  <div id="stick"><div id="knob"></div></div>
+  <div class="btn" id="b-attack">HIT</div>
+  <div class="btn" id="b-jump">JUMP</div>
+  <div class="btn" id="b-dash">DASH</div>
+  <div class="btn" id="b-pause">II</div>
+</div>
+
+<div class="panel" id="p-title"><div class="card">
+  <h1>KNIGHT KITTEN</h1><p>&amp; the Tiny Inconveniences</p>
+  <div class="grid">
+    <button id="m-story" autofocus>Story<small id="rec-story"></small></button>
+    <button id="m-journey">Journey<small id="rec-journey"></small></button>
+    <button id="m-endless">Endless<small id="rec-endless"></small></button>
+    <button id="m-bossrush">Boss Rush<small id="rec-bossrush"></small></button>
+    <button id="m-daily">Daily<small id="rec-daily"></small></button>
+  </div>
+  <div class="row"><button id="m-continue"></button></div>
+  <div class="row"><button id="m-shop">Shop (<span id="fish-count">0</span> fish)</button><button id="m-help">How to play</button><button id="m-sound-title">Sound</button></div>
+</div></div>
+<div class="panel" id="p-shop"><div class="card"><h2>SHOP</h2><p id="shop-fish"></p><div class="grid" id="shop-list"></div><div class="row"><button id="shop-back" data-back>Back</button></div></div></div>
+<div class="panel" id="p-help"><div class="card"><h2>HOW TO PLAY</h2><div class="help">
+  <b>Arena</b> (Story, Endless, Boss Rush, Daily): move with WASD / arrows / stick. J attack (3 hits = launcher), K jump (twice = double jump), L dash (hold to sprint). Jump + attack = ground pound. Climb rocks, bales and haystacks. Stop alarms reaching the cottage door.<br>
+  <b>Journey</b>: hold jump to charge a higher leap, press again in the air to double jump, attack to slash. Rescue stray cats, collect fish, reach Grandma's.<br>
+  <b>Touch</b>: left side = stick (Journey: jump), buttons on the right. <b>Gamepad</b>: A jump, X attack, B dash.</div>
+  <div class="row"><button id="help-back" data-back>Back</button></div></div></div>
+<div class="panel" id="p-results"><div class="card"><h2 id="r-title"></h2><p id="r-sub"></p><div id="r-record">NEW RECORD!</div><div id="r-stats"></div><div class="row" id="r-buttons"></div></div></div>
+<div class="panel" id="p-pause"><div class="card"><h2>PAUSED</h2><div class="row"><button id="p-resume" data-back>Resume</button><button id="p-restart">Restart</button><button id="p-sound">Sound</button><button id="p-quit">Quit to menu</button></div></div></div>
+
+<div id="rotate"><span>&#8635;</span>TURN YOUR DEVICE<br>SIDEWAYS TO PLAY</div>
+
+<script src="vendor/matter.min.js"></script>
+<script src="sprites.js"></script>
+<script src="ui.js"></script>
+<script src="input.js"></script>
+<script src="audio.js"></script>
+<script src="core.js"></script>
+<script src="world.js"></script>
+<script src="arena.js"></script>
+<script src="modes.js"></script>
+<script src="journey.js"></script>
+<script src="main.js"></script>
+</body>
+</html>
