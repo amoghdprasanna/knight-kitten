@@ -18,21 +18,20 @@ controls appear automatically), and supports gamepads.
 - **Boss Rush**: all four bosses back to back against the clock.
 - **Daily**: the same seeded run for everyone each day, with two modifiers.
 - **Bengaluru**: free roam around a pocket-sized Bengaluru laid out after
-  the real city: Malleswaram and Sankey Tank, Bangalore Palace, the Race
-  Course and Holiday Inn, Majestic (KSR station, the bus station), Vidhana
-  Soudha and the High Court, Cubbon Park, Chinnaswamy Stadium, MG Road and
-  Brigade Road, Commercial Street, Ulsoor Lake, Indiranagar, K.R. Market,
-  the fort and Tipu Sultan's Summer Palace, Basavanagudi (Bull Temple,
-  Bugle Rock, Vidyarthi Bhavan), Lalbagh, Jayanagar's pink tabebuia
-  "cherry blossom" avenues, Koramangala and Silk Board. R.K. Narayan's
-  Malgudi lies across the river Sarayu, linked to KSR by the steam-hauled
-  Malgudi Express. Collect a postcard at each landmark, ride the Purple,
-  Green and Yellow lines of Namma Metro (change at Majestic or R.V. Road),
-  watching the real streets go by from a window seat or from outside, talk to
-  people, and watch day turn to night. Buildings are drawn in 3D: roofs, side
-  walls and, for Vidhana Soudha, a hand-built model with its domes, portico
-  and lion capital. The minimap and city map (M) let you set a destination;
-  V switches between street, drone, Malgudi sketch and close-up views.
+  the real city: Rajajinagar (ISKCON, the World Trade Center, Orion Mall),
+  Malleswaram and Sankey Tank, Bangalore Palace, the Race Course and Holiday
+  Inn, Majestic (KSR station, the bus station), Vidhana Soudha and the High
+  Court, Cubbon Park, Chinnaswamy Stadium, UB City and Kingfisher Towers, MG
+  Road, Brigade Road and the Hard Rock Cafe, Commercial Street, Ulsoor Lake,
+  Indiranagar, K.R. Market, the fort and Tipu Sultan's Summer Palace,
+  Basavanagudi, Vijayanagar, Lalbagh, Jayanagar's pink tabebuia "cherry
+  blossom" avenues, Koramangala and Silk Board. Buildings are drawn in 3D,
+  several of them modelled on the real thing. Ride the Purple, Green and
+  Yellow lines of Namma Metro along their real routes, stopping at every
+  station, with the city's landmarks named on the skyline as you pass.
+  Collect a postcard at each landmark, talk to people, and watch day turn to
+  night. The minimap and city map (M) let you set a destination; V switches
+  between street, drone, Malgudi sketch and close-up views.
 
 Fish collected in any mode buy capes, bows and armor in the shop.
 

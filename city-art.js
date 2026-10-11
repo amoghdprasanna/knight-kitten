@@ -332,6 +332,237 @@ function bVidhana3D() {
   return img;
 }
 
+// A cone (turret roofs, spires) on a round base.
+function bCone(g, x, y, z, rad, h, ramp, line = '#2a2a30') {
+  const [cx, cy] = g.P(x, y, z);
+  for (let j = 0; j <= h; j++) {
+    const half = rad * (1 - j / h);
+    for (let i = Math.round(-half); i <= Math.round(half); i++) {
+      const nx = half ? i / (half + 0.5) : 0;
+      const v = nx * LIGHT[0] + Math.sqrt(Math.max(0, 1 - nx * nx)) * LIGHT[2] + 0.2;
+      g.r(rampAt(ramp, v, i + 64, j), Math.round(cx + i), Math.round(cy - j), 1, 1);
+    }
+    g.r(line, Math.round(cx - half) - 1, Math.round(cy - j), 1, 1); g.r(line, Math.round(cx + half) + 1, Math.round(cy - j), 1, 1);
+  }
+  g.r(line, Math.round(cx), Math.round(cy - h) - 3, 1, 3);
+}
+
+// Battlements: square merlons along the front top edge of a box.
+function bMerlons(g, x, y, z, w, col) {
+  for (let i = x; i < x + w - 2; i += 6) g.box(i, y, z, 4, 3, 4, col);
+}
+
+// Bangalore Palace: grey granite in Tudor style, with a crenellated entrance
+// tower, octagonal corner towers, slender turrets with pointed slate roofs,
+// pointed Gothic windows in white frames, and ivy on the walls.
+function bPalace3D() {
+  const W0 = 372, H0 = 190, OX = 6, OY = H0 - 8;
+  const STONE = ['#2e2c2a', '#5e5850', '#7e776c', '#9a9284', '#b3ab9b', '#c9c1b0', '#ddd6c6'];
+  const SLATE = ['#1e2228', '#363c46', '#4e5664', '#68717f', '#858e9b'];
+  const F = { front: '#aea694', top: '#cfc8b6', side: '#7d7668', line: '#2e2c2a' };
+  const M = { front: '#bdb5a2', top: '#d6cfbe', side: '#857e70', line: '#2e2c2a' };
+  const WIN = '#30353f', TRIM = '#ece7dc';
+  return b3dCanvas(W0, H0, OX, OY, g => {
+    const { r, P } = g;
+    const rnd = seeded(1887);
+    const lancet = (x, y, w, h) => { r(TRIM, x - 1, y + 1, w + 2, h); r(TRIM, x, y, w, 1); r(WIN, x, y + 2, w, h - 2); r(WIN, x + 1, y + 1, w - 2, 1); r('#4a5262', x, y + 2, 1, h - 2); };
+    const mortar = f => { for (let y = f.y + 3; y < f.y + f.h - 1; y += 4) r('#a39b89', f.x + 1, y, f.w - 1, 1); };
+    const ivy = f => { for (let i = 0; i < f.w / 9; i++) { const x = f.x + 1 + Math.floor(rnd() * (f.w - 6)), y = f.y + f.h - 4 - Math.floor(rnd() * f.h * 0.6), w = 3 + Math.floor(rnd() * 6); r('#3f6a2e', x, y, w, 3 + Math.floor(rnd() * 5)); r('#5a8a3e', x + 1, y, Math.max(1, w - 2), 2); } };
+    g.box(0, 4, 0, 360, 66, 6, { front: '#cfc8b6', top: '#ddd6c6', side: '#9a9284', line: '#2e2c2a' });
+    // Wings: two floors of paired pointed windows, battlements on top.
+    for (const wx of [22, 220]) {
+      const f = g.box(wx, 16, 6, 118, 44, 50, F);
+      mortar(f);
+      for (let x = f.x + 6; x < f.x + f.w - 8; x += 14) { lancet(x, f.y + 8, 4, 13); lancet(x + 6, f.y + 8, 4, 13); lancet(x, f.y + 30, 4, 14); lancet(x + 6, f.y + 30, 4, 14); }
+      r(TRIM, f.x + 1, f.y + 25, f.w - 1, 1);
+      ivy(f);
+      bMerlons(g, wx, 16, 56, 118, M);
+    }
+    // Slender turrets with pointed slate roofs where the wings meet the centre.
+    for (const tx of [136, 224]) {
+      g.cyl(tx, 12, 6, 6, 70, STONE);
+      for (let z = 20; z < 70; z += 16) { const [sx, sy] = P(tx, 12, z); r(WIN, Math.round(sx) - 1, Math.round(sy) - 7, 2, 6); }
+      bCone(g, tx, 12, 76, 8, 22, SLATE);
+    }
+    // Centre block and the great entrance tower.
+    const c = g.box(140, 10, 6, 80, 48, 62, F);
+    mortar(c);
+    for (let x = c.x + 6; x < c.x + c.w - 6; x += 12) lancet(x, c.y + 10, 5, 16);
+    bMerlons(g, 140, 10, 68, 80, M);
+    const t = g.box(158, 4, 6, 44, 30, 96, M);
+    mortar(t);
+    r('#2e2c2a', t.x + 12, t.y + t.h - 34, 21, 34); r('#4a3020', t.x + 14, t.y + t.h - 31, 17, 31);
+    for (let k = 0; k < 6; k++) r('#4a3020', t.x + 15 + k, t.y + t.h - 32 - Math.round(Math.sqrt(36 - (k - 3) ** 2) / 2), 1, 2);
+    r('#6b4a32', t.x + 22, t.y + t.h - 30, 1, 30);
+    lancet(t.x + 10, t.y + 26, 6, 18); lancet(t.x + 28, t.y + 26, 6, 18);
+    r(TRIM, t.x + 16, t.y + 8, 12, 12); r(WIN, t.x + 17, t.y + 9, 10, 10); r(TRIM, t.x + 21, t.y + 9, 2, 10); r(TRIM, t.x + 17, t.y + 13, 10, 2);
+    bMerlons(g, 158, 4, 102, 44, M);
+    for (const [bx, by] of [[160, 6], [200, 6]]) { g.cyl(bx, by, 98, 4, 14, STONE); const [sx, sy] = P(bx, by, 112); r('#2e2c2a', Math.round(sx) - 5, Math.round(sy) - 4, 11, 4); r(TRIM, Math.round(sx) - 4, Math.round(sy) - 4, 9, 2); }
+    ivy(t);
+    // Octagonal towers at the ends, crenellated, with narrow windows.
+    for (const tx of [14, 346]) {
+      g.cyl(tx, 30, 6, 15, 74, STONE);
+      for (let z = 14; z < 74; z += 20) { const [sx, sy] = P(tx, 30, z); lancet(Math.round(sx) - 2, Math.round(sy) - 14, 4, 12); }
+      g.cyl(tx, 30, 80, 17, 5, STONE);
+      const [sx, sy] = P(tx, 30, 85);
+      for (let i = -16; i < 17; i += 6) g.c.clearRect(Math.round(sx + i), Math.round(sy) - 1, 3, 3);
+    }
+  });
+}
+
+// M. Chinnaswamy Stadium: an oval bowl of stands in red and gold, cantilever
+// roofs with solar panels over the far side, four tall floodlight towers.
+function bStadium3D() {
+  const S = B_STADIUM, Hs = 34;
+  const W0 = S.rx * 2 + 24, H0 = S.ry * 2 + Hs + 120;
+  const cx = W0 / 2, cy = H0 - 6 - S.ry;
+  let anchorName = null;
+  const img = bcv(W0, H0, (r, c) => {
+    const rnd = seeded(1974);
+    const ell = (rx, ry, z, col) => { c.fillStyle = col; pixEllipse(c, cx, cy - z, Math.round(rx), Math.round(ry)); };
+    const flood = (a, back) => {
+      const x = Math.round(cx + Math.cos(a) * (S.rx + 4)), y = Math.round(cy + Math.sin(a) * (S.ry + 3));
+      r('#2a2a2e', x - 2, y - 112, 4, 112); for (let k = y - 110; k < y; k += 6) r('#8a8f96', x - 1, k, 2, 1);
+      r('#2a2a2e', x - 9, y - 124, 18, 14); r('#4a4f58', x - 8, y - 123, 16, 12);
+      for (let k = 0; k < 3; k++) for (let j = 0; j < 5; j++) r('#fff6d8', x - 7 + j * 3, y - 122 + k * 4, 2, 2);
+      void back;
+    };
+    flood(Math.PI * 1.25, true); flood(Math.PI * 1.75, true);
+    // Seating tiers from the outside in, so the bowl reads from above.
+    const N = 12;
+    for (let k = N; k >= 0; k--) {
+      const t = k / N;
+      const rx = S.irx + (S.rx - S.irx) * t, ry = S.iry + (S.ry - S.iry) * t, z = 2 + (Hs - 2) * t;
+      ell(rx + 1, ry + 1, z, '#3a3530');
+      ell(rx, ry, z, k % 2 ? '#c0392b' : k % 3 === 0 ? '#c9a227' : '#a8312a');
+    }
+    // Crowd specks and aisles.
+    for (let i = 0; i < 2600; i++) {
+      const a = rnd() * Math.PI * 2, t = rnd();
+      const rx = S.irx + (S.rx - S.irx) * t, ry = S.iry + (S.ry - S.iry) * t, z = 2 + (Hs - 2) * t;
+      r(['#f1ead8', '#2b2220', '#f2c94c', '#5b8ee0', '#d8433b'][Math.floor(rnd() * 5)], Math.round(cx + Math.cos(a) * rx), Math.round(cy - z + Math.sin(a) * ry), 1, 1);
+    }
+    for (let a = 0; a < Math.PI * 2; a += Math.PI / 9) for (let t = 0; t <= 1; t += 0.03) {
+      const rx = S.irx + (S.rx - S.irx) * t, ry = S.iry + (S.ry - S.iry) * t, z = 2 + (Hs - 2) * t;
+      r('#d9d2c4', Math.round(cx + Math.cos(a) * rx), Math.round(cy - z + Math.sin(a) * ry), 1, 1);
+    }
+    // The field: mowed stripes, the boundary rope, the pitch.
+    for (let dy = -S.iry + 2; dy <= S.iry - 2; dy++) {
+      const half = Math.round((S.irx - 2) * Math.sqrt(1 - (dy / S.iry) ** 2));
+      r(Math.floor((dy + S.iry) / 7) % 2 ? '#5fa040' : '#6aae49', cx - half, cy - 1 + dy, half * 2 + 1, 1);
+    }
+    for (let a = 0; a < Math.PI * 2; a += 0.01) r('#f4f1ea', Math.round(cx + Math.cos(a) * (S.irx - 10)), Math.round(cy - 1 + Math.sin(a) * (S.iry - 8)), 1, 1);
+    r('#d6c08a', cx - 4, cy - 15, 9, 28); r('#ffffff', cx - 4, cy - 12, 9, 1); r('#ffffff', cx - 4, cy + 10, 9, 1);
+    // Cantilever roofs over the far stands, covered in solar panels.
+    for (let a = Math.PI * 1.08; a < Math.PI * 1.92; a += 0.004) {
+      for (let t = 0.55; t <= 1.02; t += 0.02) {
+        const rx = S.irx + (S.rx - S.irx) * t, ry = S.iry + (S.ry - S.iry) * t;
+        const x = Math.round(cx + Math.cos(a) * rx), y = Math.round(cy - Hs - 12 + Math.sin(a) * ry);
+        const panel = Math.floor(a * 40) % 3 !== 0 && t > 0.62 && t < 0.97;
+        r(panel ? (Math.floor(t * 30) % 2 ? '#2f4f8a' : '#3a5f9e') : '#e9eef2', x, y, 1, 1);
+      }
+      const x = Math.round(cx + Math.cos(a) * S.rx), y = Math.round(cy - Hs - 12 + Math.sin(a) * S.ry);
+      r('#3a3530', x, y + 1, 1, 1);
+      if (Math.floor(a * 60) % 7 === 0) r('#8a8f96', x, y + 1, 1, 12);
+    }
+    // The outer wall of the near stands, with gates.
+    for (let x = -S.rx; x <= S.rx; x++) {
+      const yb = Math.round(cy + S.ry * Math.sqrt(1 - (x / S.rx) ** 2));
+      const nx = x / S.rx;
+      const v = nx * LIGHT[0] + Math.sqrt(1 - nx * nx) * LIGHT[2] + 0.2;
+      const ramp = ['#4a4740', '#6e6a62', '#8a857a', '#a8a294', '#c4bfb2', '#d9d4c8'];
+      for (let z = 0; z < Hs; z++) r(rampAt(ramp, v, x + 400, z), cx + x, yb - z, 1, 1);
+      r('#3a3530', cx + x, yb - Hs, 1, 1); r('#3a3530', cx + x, yb, 1, 1);
+      if (Math.abs(x) % 34 < 7 && Math.abs(x) < S.rx - 12) for (let z = 1; z < 13; z++) r('#2b2620', cx + x, yb - z, 1, 1);
+      if (Math.abs(x) % 34 >= 7 && z0band(x)) r('#c0392b', cx + x, yb - 20, 1, 3);
+    }
+    function z0band(x) { return Math.abs(x) < S.rx - 6; }
+    anchorName = { x: cx, y: cy + S.ry - 26 };
+    flood(Math.PI * 0.25, false); flood(Math.PI * 0.75, false);
+  });
+  img.fw = W0;
+  img.anchors = { name: anchorName };
+  return img;
+}
+
+// Kingfisher Towers: two tall white-framed glass towers on Kasturba Road;
+// on top of the taller one, a white villa with columns in a rooftop garden.
+function bKingfisher3D() {
+  const W0 = 132, H0 = 262, OX = 8, OY = H0 - 6;
+  const GLASS = '#7fa6c4', GL2 = '#a9c8dc', WH = '#eef1f3', WH2 = '#c9ced2';
+  return b3dCanvas(W0, H0, OX, OY, g => {
+    const { r } = g;
+    const tower = (x, y, w, d, h) => {
+      const f = g.box(x, y, 0, w, d, h, { front: GLASS, top: WH, side: '#5d84a6', line: '#22303f' });
+      for (let yy = f.y + 3; yy < f.y + f.h - 2; yy += 5) { r(WH, f.x + 1, yy, f.w - 1, 1); r(WH2, f.x + 1, yy + 1, f.w - 1, 1); }
+      for (let xx = f.x + 4; xx < f.x + f.w - 2; xx += 7) r(WH, xx, f.y + 1, 1, f.h - 2);
+      for (let k = 0; k < 6; k++) r(GL2, f.x + 2 + k, f.y + 8 + k * 30, 1, 20);
+      return f;
+    };
+    tower(52, 10, 34, 26, 176);
+    const a = tower(4, 4, 36, 30, 204);
+    // The rooftop garden and the villa.
+    g.box(2, 2, 204, 40, 34, 3, { front: '#3f7a35', top: '#5a9a45', side: '#2f5a2a', line: '#1f3a1f' });
+    const v = g.box(8, 10, 207, 26, 18, 13, { front: '#ffffff', top: '#e9e4dc', side: '#c9c2b6', line: '#3a3530' });
+    for (let x = v.x + 2; x < v.x + v.w - 1; x += 4) r('#c9c2b6', x, v.y + 3, 1, v.h - 3);
+    r('#3a3530', v.x - 1, v.y, v.w + 2, 1); r('#e9e4dc', v.x + 9, v.y - 4, 8, 4); r('#3a3530', v.x + 8, v.y - 5, 10, 1);
+    for (const [tx, ty] of [[4, 6], [40, 6], [4, 32], [40, 32]]) { const [sx, sy] = g.P(tx, ty, 207); r('#2f5a2a', Math.round(sx) - 2, Math.round(sy) - 5, 5, 5); r('#5a9a45', Math.round(sx) - 1, Math.round(sy) - 5, 3, 3); }
+    r('#3a3530', a.x + 10, a.y + a.h - 14, 16, 14); r('#ffd98a', a.x + 12, a.y + a.h - 12, 12, 10);
+  });
+}
+
+// ISKCON Bengaluru on its hill: a cream temple with a tall gold-and-glass
+// tower, smaller towers either side, and a long flight of granite steps.
+function bIskcon3D() {
+  const W0 = 196, H0 = 232, OX = 8, OY = H0 - 6;
+  const GOLD = ['#5a3a10', '#8a5e1a', '#b8862a', '#e0b448', '#f6d878', '#fff2b8'];
+  const CR = { front: '#f2e2b8', top: '#fbf0d4', side: '#c9b48a', line: '#4a3a24' };
+  return b3dCanvas(W0, H0, OX, OY, g => {
+    const { r, P } = g;
+    // The hill and its steps.
+    g.box(0, 0, 0, 176, 70, 20, { front: '#6a9a45', top: '#7fb44f', side: '#4f7a35', line: '#2f4a22' });
+    for (let k = 0; k < 7; k++) g.box(70, -14 + k * 2, 0, 36, 2, 3 + k * 3, { front: k % 2 ? '#bdb5a5' : '#d3cbbb', top: '#e9e4dc', side: null, line: k ? null : '#3a3530' });
+    // The temple hall with arches.
+    const h = g.box(18, 16, 20, 140, 46, 34, CR);
+    for (let x = h.x + 6; x < h.x + h.w - 6; x += 10) { r('#b8862a', x - 1, h.y + 10, 7, 20); r('#7a5a2a', x, h.y + 12, 5, 18); r('#7a5a2a', x + 1, h.y + 11, 3, 1); }
+    r('#e0b448', h.x + 1, h.y + 3, h.w - 1, 2);
+    // Side towers.
+    for (const tx of [26, 128]) {
+      for (let k = 0; k < 4; k++) g.box(tx + k * 2, 22 + k * 2, 54 + k * 10, 22 - k * 4, 22 - k * 4, 10, k % 2 ? { front: '#e0b448', top: '#f6d878', side: '#b8862a', line: '#5a3a10' } : CR);
+      const [sx, sy] = P(tx + 11, 33, 94); r('#5a3a10', Math.round(sx) - 2, Math.round(sy) - 6, 5, 6); r('#f6d878', Math.round(sx) - 1, Math.round(sy) - 6, 3, 5);
+    }
+    // The main tower: tiers of gold glass narrowing to a kalasha.
+    for (let k = 0; k < 9; k++) {
+      const w = 46 - k * 4.4, x = 88 - w / 2, y = 26 + k * 2.2;
+      const f = g.box(x, y, 54 + k * 14, w, w, 14, { front: k % 2 ? '#e0b448' : '#f2c95a', top: '#fff2b8', side: '#a8761e', line: '#5a3a10' });
+      for (let xx = f.x + 2; xx < f.x + f.w - 1; xx += 4) r(k % 2 ? '#b8862a' : '#c99a3a', xx, f.y + 2, 1, f.h - 3);
+      r('#fff6d0', f.x + 2, f.y + 2, 1, f.h - 4);
+    }
+    const [kx, ky] = P(88, 46, 180);
+    g.dome(88, 46, 180, 6, 7, GOLD, 1);
+    r('#5a3a10', Math.round(kx) - 1, Math.round(ky) - 18, 3, 6); r('#f6d878', Math.round(kx), Math.round(ky) - 18, 1, 5);
+    r('#ee8b3a', Math.round(kx) + 1, Math.round(ky) - 22, 6, 3);
+  });
+}
+
+// World Trade Center Bengaluru: a tall glass tower with a slanted crown.
+function bWtc3D() {
+  const W0 = 92, H0 = 270, OX = 6, OY = H0 - 6;
+  return b3dCanvas(W0, H0, OX, OY, g => {
+    const { r, P, c } = g;
+    g.box(0, 0, 0, 62, 40, 14, { front: '#c9ced2', top: '#e9eef2', side: '#9aa0a8', line: '#22303f' });
+    const f = g.box(8, 6, 14, 46, 32, 214, { front: '#3f6a8f', top: '#7fa6c4', side: '#2a4a68', line: '#14202c' });
+    for (let y = f.y + 2; y < f.y + f.h; y += 4) r('#5a86ab', f.x + 1, y, f.w - 1, 1);
+    for (let x = f.x + 5; x < f.x + f.w; x += 6) r('#2f5578', x, f.y + 1, 1, f.h - 2);
+    for (let k = 0; k < 8; k++) r('#9cc4dc', f.x + 3 + k * 2, f.y + 20 + k * 22, 2, 18);
+    // Slanted crown.
+    polyFill(c, [P(8, 6, 228), P(54, 6, 228), P(54, 6, 252), P(8, 6, 236)], '#5a86ab');
+    polyFill(c, [P(54, 6, 228), P(54, 38, 228), P(54, 38, 252), P(54, 6, 252)], '#2a4a68');
+    polyFill(c, [P(8, 6, 236), P(54, 6, 252), P(54, 38, 252), P(8, 38, 236)], '#9cc4dc');
+    pixLine(c, P(8, 6, 236), P(54, 6, 252), '#14202c'); pixLine(c, P(8, 6, 228), P(8, 6, 236), '#14202c');
+  });
+}
+
 // Gives a flat front-elevation sprite depth: a roof plane receding up and to
 // the right and a shaded side wall, so it reads as a solid building. Rows
 // above `cut` (domes, spires) are not extruded; they sit at mid-depth instead.
@@ -385,16 +616,29 @@ function bExtrude(src, depth, cut = 0) {
   c.drawImage(src, 0, cut, w, h - cut, 0, dy + cut, w, h - cut);
   out.fw = w;
   out.oy = dy;
-  out.anchors = src.anchors;
+  out.anchors = src.anchors && Object.fromEntries(Object.entries(src.anchors).map(([k, a]) => [k, { x: a.x, y: a.y + dy }]));
   return out;
 }
+
+// Details added after extrusion, so they stay flat: signs on posts and the like.
+const B_DECOR = {
+  // The round Hard Rock Cafe sign on its post, at the front corner.
+  hardrock: (c, oy) => {
+    const r = (col, x, y, w = 1, h = 1) => { c.fillStyle = col; c.fillRect(x, y, w, h); };
+    r('#2b2620', 89, oy + 40, 2, 44);
+    for (let dy = -10; dy <= 10; dy++) for (let dx = -12; dx <= 12; dx++) {
+      const d = Math.hypot(dx / 12, dy / 10);
+      if (d <= 1) r(d > 0.86 ? '#2b2620' : d > 0.72 ? '#f2c94c' : '#c0392b', 82 + dx, oy + 30 + dy);
+    }
+  },
+};
 
 // How deep each kind of building is drawn, and where its domes start.
 const B_DEPTH = {
   highcourt: [44], library: [30, 20], holidayinn: [40], ksr: [44], busstand: [40], freedom: [34, 6], townhall: [40],
   museum: [32], stmarks: [36, 32], ubcity: [56], krmarket: [26], fort: [18], tipu: [38], bulltemple: [32],
   malleshwara: [32], vidyarthi: [20], cinema: [28], mtr: [22], darshini: [14], complex: [32], bakery: [18],
-  school: [30], temple: [24], mstation: [26], hut: [16], glasshouse: [44], grandstand: [24], palace: [56],
+  temple: [24], glasshouse: [44], grandstand: [24], hardrock: [30], orion: [36],
   gurudwara: [30, 32], shop: [20], office0: [44], office1: [40], office2: [44], apartment0: [32], apartment1: [32],
   apartment2: [32], jhouse: [18], mhouse: [16],
 };
@@ -635,20 +879,7 @@ const B_ART = {
     r('#8a5a3a', 6, 35, 40, 7); r('#b5824a', 6, 35, 40, 1);
   }),
 
-  school: () => bcv(130, 72, (r) => {
-    const O = '#3d2a1e', ST = '#dcc9a3', ST2 = '#bfa982', TL = '#b5553a', TL2 = '#8a3a28';
-    r(O, 2, 16, 126, 12); r(TL, 3, 17, 124, 10);
-    for (let y = 19; y < 27; y += 3) r(TL2, 3, y, 124, 1);
-    r(O, 4, 27, 122, 44); r(ST, 5, 28, 120, 42); r(ST2, 5, 28, 120, 2);
-    r('#f1e6c8', 30, 29, 70, 7); r(O, 30, 36, 70, 1);
-    for (let x = 9; x < 122; x += 12) {
-      r(O, x - 1, 46, 10, 23); r('#4a3a2e', x, 48, 8, 21); r('#4a3a2e', x + 1, 47, 6, 1);
-      r(ST2, x + 9, 46, 2, 23);
-    }
-    for (let x = 9; x < 122; x += 12) { r(O, x + 1, 38, 5, 6); r('#5f6f7a', x + 2, 39, 3, 4); }
-    r(O, 56, 0, 18, 28); r(ST, 57, 4, 16, 24); r(TL, 55, 0, 20, 5); r(TL2, 55, 4, 20, 1);
-    r(O, 61, 9, 8, 8); r('#2b2220', 62, 10, 6, 7); r('#e6c15e', 63, 12, 4, 4);
-  }),
+
 
   temple: () => bcv(56, 64, (r) => {
     const O = '#3d2a1e', ST = '#ecdfc0', ST2 = '#cdbb94', fig = ['#d8433b', '#2f6db0', '#f2c94c', '#2f8a3a', '#ee8b3a'];
@@ -665,75 +896,11 @@ const B_ART = {
     for (const x of [24, 28, 32]) { r('#e6c15e', x - 1, -1 + 1, 2, 1); }
   }),
 
-  banyan: () => bcv(140, 104, (r, c) => {
-    const rnd = seeded(1935);
-    // Stone katte (platform) round the trunk.
-    r('#3a3530', 44, 92, 52, 11); r('#b8b0a0', 45, 93, 50, 9); r('#d3cbbb', 45, 93, 50, 2);
-    // Trunks and hanging roots.
-    for (const [x, w] of [[60, 8], [70, 7], [54, 4], [78, 4]]) { r('#3a2618', x - 1, 50, w + 2, 44); r('#6b4a32', x, 50, w, 43); r('#8a6a4a', x, 50, 1, 43); }
-    for (let i = 0; i < 26; i++) {
-      const x = 10 + Math.floor(rnd() * 120), y0 = 40 + Math.floor(rnd() * 14), len = 14 + Math.floor(rnd() * 34);
-      for (let y = y0; y < y0 + len; y++) r(rnd() < 0.5 ? '#7a5a3a' : '#5a3e2b', x, y);
-    }
-    const lumps = [];
-    for (let i = 0; i < 16; i++) lumps.push({ x: 14 + rnd() * 112, y: 14 + rnd() * 26, r: 13 + rnd() * 10 });
-    const can = blob(140, 62, (x, y) => lumps.some(l => (x - l.x) ** 2 + ((y - l.y) * 1.25) ** 2 < l.r * l.r), ['#1a301a', '#2a4f27', '#3a6a33', '#558a44'], 0.14, rnd);
-    c.drawImage(can, 0, 0);
-  }),
 
-  mstation: () => bcv(130, 58, (r) => {
-    const O = '#3d2a1e', OC = '#e1b45f', OC2 = '#c79a48', MR = '#7a2b25', TL = '#b5553a', TL2 = '#8a3a28';
-    r(O, 8, 20, 114, 37); r(OC, 9, 21, 112, 35); r(OC2, 9, 21, 112, 2);
-    r(MR, 9, 44, 112, 12); r('#5a1f1a', 9, 44, 112, 1);
-    for (let x = 14; x < 118; x += 14) archWindow(r, x, 28, 6, 12, '#f4e9d0', '#3a2a20');
-    r(O, 56, 26, 18, 30); r('#4a3020', 57, 28, 16, 28); r('#4a3020', 58, 27, 14, 1);
-    r('#f4e9d0', 61, 14, 8, 8); r(O, 62, 15, 6, 6); r('#ffffff', 63, 16, 4, 4); r(O, 64, 17, 1, 2); r(O, 65, 18, 1, 1);
-    // Tiled platform canopy on iron posts.
-    r(O, 0, 6, 130, 13); r(TL, 1, 7, 128, 11);
-    for (let y = 9; y < 18; y += 3) r(TL2, 1, y, 128, 1);
-    for (let x = 1; x < 129; x += 4) r(TL2, x, 7 + (x % 8 ? 0 : 1), 1, 2);
-    r('#5a1f1a', 1, 17, 128, 1);
-    for (const x of [4, 124]) { r(O, x - 1, 18, 3, 38); r('#3a5a4a', x, 18, 1, 38); }
-  }),
-
-  board: () => bcv(40, 22, (r) => {
-    const O = '#1d1816';
-    for (const x of [6, 33]) { r(O, x, 9, 2, 13); for (let y = 10; y < 22; y += 4) r('#ffffff', x, y, 2, 2); }
-    r(O, 0, 0, 40, 11); r('#f2cf3e', 1, 1, 38, 9);
-  }),
-
-  tunnel: () => bcv(50, 46, (r) => {
-    const O = '#2f2a24';
-    const rows = [];
-    for (let y = 2; y < 46; y++) { const half = Math.round(25 * Math.sqrt(Math.min(1, (y - 2) / 20))); rows.push([y, 25 - half, 24 + half]); }
-    bShape(r, rows, O, (x, y) => (y < 14 ? '#5d8a3e' : (x + y) % 7 < 2 ? '#8a7c64' : '#a59880'));
-    for (let dy = 0; dy < 22; dy++) {
-      const half = Math.round(10 * Math.sqrt(Math.max(0, 1 - (Math.max(0, dy - 10) / 12) ** 2)));
-      r(dy < 10 ? '#0f0d0b' : '#0f0d0b', 25 - half, 45 - dy, half * 2, 1);
-    }
-    r('#d9cfb8', 13, 21, 24, 3);
-  }),
-
-  hut: () => bcv(40, 34, (r) => {
-    const O = '#3d2a1e';
-    r(O, 5, 16, 30, 17); r('#d8c39a', 6, 17, 28, 15); r(O, 16, 21, 8, 12); r('#3a2a20', 17, 22, 6, 11);
-    for (let y = 2; y < 18; y++) { const half = Math.round((y - 2) * 1.3) + 2; r(O, 20 - half - 1, y, half * 2 + 2, 1); r(y % 3 ? '#c9a55a' : '#a8843e', 20 - half, y, half * 2, 1); }
-  }),
-
-  mempi: () => bcv(30, 22, (r) => {
-    r('#3d2a1e', 4, 6, 2, 16); r('#3d2a1e', 0, 0, 30, 7); r('#f4e9d0', 1, 1, 26, 5); r('#f4e9d0', 27, 2, 2, 3);
-  }),
 
   statue: () => bcv(12, 24, (r) => {
     r('#3a3530', 1, 16, 10, 8); r('#cfc4b2', 2, 17, 8, 6);
     r('#3a3530', 3, 3, 6, 14); r('#7d8a6a', 4, 4, 4, 12); r('#9aa886', 4, 4, 1, 12); r('#3a3530', 4, 0, 4, 4); r('#7d8a6a', 5, 1, 2, 2);
-  }),
-
-  flood: () => bcv(16, 78, (r) => {
-    const O = '#2a2a2e';
-    for (let y = 12; y < 78; y++) { r(O, 6, y, 4, 1); if (y % 4 === 0) r('#8a8f96', 7, y, 2, 1); }
-    r(O, 0, 0, 16, 12); r('#4a4f58', 1, 1, 14, 10);
-    for (let y = 2; y < 10; y += 3) for (let x = 2; x < 14; x += 3) r('#f4f1ea', x, y, 2, 2);
   }),
 
   lamp: () => bcv(8, 26, (r) => {
@@ -746,30 +913,34 @@ const B_ART = {
 
   // Bangalore Palace: Tudor Revival, granite with battlements, turrets with
   // slate spires, pointed Gothic windows and ivy on the walls.
-  palace: () => bcv(330, 164, (r) => {
-    const O = '#3a3530', S1 = '#d8cfbd', S2 = '#bfb5a0', S3 = '#9c927e', SL = '#5d6470', SL2 = '#7a8290', WIN = '#363b46', IVY = '#4f7a35', IVY2 = '#6a9a45';
-    const rnd = seeded(1878);
-    const battle = (x, y, w) => { for (let i = x; i < x + w - 2; i += 6) { r(O, i, y, 5, 6); r(S1, i + 1, y + 1, 3, 5); } };
-    const goth = (x, y, w, h) => { r(S3, x - 1, y, w + 2, h + 1); r(WIN, x, y + 2, w, h - 2); r(WIN, x + 1, y + 1, w - 2, 1); r('#5a6070', x, y + 2, 1, h - 2); };
-    r(O, 4, 154, 322, 9); r(S2, 5, 155, 320, 7); r(S1, 5, 155, 320, 2);
-    r(O, 14, 84, 302, 72); r(S1, 15, 85, 300, 70); r(S2, 15, 85, 300, 2); r(S3, 15, 120, 300, 1);
-    battle(14, 78, 302);
-    for (let x = 22; x < 310; x += 13) { goth(x, 92, 5, 18); goth(x, 126, 5, 20); }
-    // Towers: [x, top, width, spire]
-    for (const [x, top, w, spire] of [[24, 44, 26, true], [96, 58, 22, false], [148, 14, 34, false], [212, 58, 22, false], [280, 44, 26, true]]) {
-      r(O, x - 1, top - 1, w + 2, 156 - top); r(S1, x, top, w, 155 - top); r(S3, x + w - 5, top, 5, 155 - top); r(S2, x, top, w, 2);
-      battle(x - 1, top - 6, w + 2);
-      for (let y = top + 8; y < 140; y += 22) goth(x + Math.floor(w / 2) - 2, y, 4, 12);
-      if (spire) for (let k = 0; k < 20; k++) { const half = Math.round((k / 20) * (w / 2 + 1)); r(O, x + w / 2 - half - 1, top - 26 + k, half * 2 + 2, 1); r(k % 4 ? SL : SL2, x + w / 2 - half, top - 26 + k, half * 2, 1); }
-    }
-    // The central entrance and the flag on the great tower.
-    r(O, 152, 120, 26, 36); r('#4a3020', 154, 124, 22, 32); r('#4a3020', 156, 122, 18, 2); r('#6b4a32', 164, 124, 2, 32);
-    // Creeping ivy.
-    for (let i = 0; i < 40; i++) {
-      const x = 16 + Math.floor(rnd() * 296), y = 110 + Math.floor(rnd() * 40), w = 3 + Math.floor(rnd() * 8);
-      r(IVY, x, y, w, 3 + Math.floor(rnd() * 6)); r(IVY2, x + 1, y, Math.max(1, w - 3), 2);
-    }
-  }),
+  palace: () => bPalace3D(),
+  stadium: () => bStadium3D(),
+  kingfisher: () => bKingfisher3D(),
+  iskcon: () => bIskcon3D(),
+  wtc: () => bWtc3D(),
+
+  // Orion Mall: a long glass front under a white frame, with its sign.
+  orion: () => { const cv = bcv(150, 64, (r) => {
+    const O = '#22303f';
+    r(O, 2, 8, 146, 55); r('#eef1f3', 3, 9, 144, 53);
+    r(O, 2, 2, 146, 8); r('#2f6db0', 3, 3, 144, 6);
+    for (let y = 14; y < 58; y++) for (let x = 6; x < 144; x++) if ((x - 6) % 10 && (y - 14) % 12) r((x + y) % 19 < 3 ? '#cfe3ee' : y > 44 ? '#ffd98a' : '#8fb4cc', x, y);
+    r(O, 58, 40, 34, 22); r('#2b3a48', 59, 41, 32, 21); r('#ffd98a', 62, 44, 12, 18); r('#ffd98a', 76, 44, 12, 18);
+  }); cv.anchors = { sign: { x: 75, y: 6 } }; return cv; },
+
+  // Hard Rock Cafe on St. Mark's Road: a restored grey stone building with a
+  // gabled roof, pointed windows, a guitar over the door and the round sign.
+  hardrock: () => { const cv = bcv(96, 84, (r) => {
+    const O = '#2b2620', ST = '#9a948a', ST2 = '#7d776e', ST3 = '#b5afa3';
+    // Gabled roof.
+    for (let y = 2; y < 26; y++) { const half = Math.round((y - 2) * 1.9) + 4; r(O, 48 - half - 1, y + 8, half * 2 + 2, 1); r(y % 3 ? '#5a3a2e' : '#4a2e24', 48 - half, y + 8, half * 2, 1); }
+    r(O, 4, 33, 88, 50); r(ST, 5, 34, 86, 48);
+    for (let y = 37; y < 80; y += 4) for (let x = 5 + ((y >> 2) % 2) * 5; x < 90; x += 10) { r(ST2, x, y, 9, 1); r(ST3, x, y - 1, 9, 1); }
+    for (const x of [12, 26, 62, 76]) { r(O, x - 1, 44, 8, 22); r('#ffd98a', x, 47, 6, 18); r('#ffd98a', x + 1, 46, 4, 1); r(O, x + 2, 47, 1, 18); }
+    r(O, 40, 54, 16, 28); r('#3a2418', 41, 56, 14, 26); r('#ffd98a', 42, 58, 12, 8);
+    // Guitar over the door.
+    r(O, 46, 36, 4, 6); r('#c0392b', 47, 37, 2, 4); r(O, 47, 28, 2, 9); r('#d9c7a2', 47, 29, 1, 8); r(O, 44, 42, 8, 8); r('#c0392b', 45, 43, 6, 6); r('#2b2220', 47, 45, 2, 2);
+  }); cv.anchors = { sign: { x: 82, y: 30 } }; return cv; },
 
   // KSR Bengaluru City: a long terminus with a clock tower over the entrance.
   ksr: () => bcv(300, 104, (r) => {
