@@ -94,37 +94,58 @@ const B_CIRCLES = [{ name: 'South End Circle', x: 2050, y: 3060, r: 46, garden: 
 const B_CLOCK = { x: 2140, y: 2400, r: 24 };          // Lalbagh's flower clock
 const B_JAM = { x: 2850, y: 3300, w: 700, h: 300 };   // Silk Board, where traffic crawls
 
-// Namma Metro lines as polylines, with stations on them.
+// Namma Metro lines as polylines, with stations on them, following the real
+// routes: Purple east-west along MG Road, Green north-south through Majestic,
+// Yellow from R.V. Road past Silk Board.
 const B_LINES = {
   purple: {
     name: 'Purple Line', col: '#8a4fb8', dark: '#5b2f80', light: '#c9a3e6',
     pts: [[880, 1400], [3020, 1400], [3020, 1900], [4760, 1900]],
     stations: [
+      { id: 'magadi', name: 'Magadi Road', x: 950, y: 1400 },
+      { id: 'cityrail', name: 'City Railway Station', x: 1240, y: 1400 },
       { id: 'majestic', name: 'Majestic', x: 1500, y: 1400 },
       { id: 'visvesvaraya', name: 'Sir M. Visvesvaraya', x: 1880, y: 1400 },
       { id: 'vidhana', name: 'Vidhana Soudha', x: 2540, y: 1400 },
       { id: 'cubbon', name: 'Cubbon Park', x: 3020, y: 1650 },
       { id: 'mgroad', name: 'MG Road', x: 3540, y: 1900 },
-      { id: 'trinity', name: 'Trinity', x: 3980, y: 1900 },
-      { id: 'indiranagar', name: 'Indiranagar', x: 4620, y: 1900 },
+      { id: 'trinity', name: 'Trinity', x: 3940, y: 1900 },
+      { id: 'halasuru', name: 'Halasuru', x: 4280, y: 1900 },
+      { id: 'indiranagar', name: 'Indiranagar', x: 4640, y: 1900 },
     ],
   },
   green: {
     name: 'Green Line', col: '#3fa34d', dark: '#24702f', light: '#9fdc8f',
-    pts: [[1500, 150], [1500, 3060], [2050, 3060], [2050, 3570]],
+    pts: [[1500, 120], [1500, 3060], [2050, 3060], [2050, 3440]],
     stations: [
-      { id: 'sampige', name: 'Sampige Road', x: 1500, y: 500 },
+      { id: 'srirampura', name: 'Srirampura', x: 1500, y: 200 },
+      { id: 'sampige', name: 'Sampige Road', x: 1500, y: 520 },
       { id: 'majestic', name: 'Majestic', x: 1500, y: 1400 },
       { id: 'chickpete', name: 'Chickpete', x: 1500, y: 1860 },
       { id: 'krmarket', name: 'K.R. Market', x: 1500, y: 2380 },
       { id: 'national', name: 'National College', x: 1500, y: 2780 },
       { id: 'lalbagh', name: 'Lalbagh', x: 1760, y: 3060 },
       { id: 'southend', name: 'South End Circle', x: 2050, y: 3150 },
-      { id: 'jayanagar', name: 'Jayanagar', x: 2050, y: 3440 },
+      { id: 'jayanagar', name: 'Jayanagar', x: 2050, y: 3300 },
+      { id: 'rvroad', name: 'R.V. Road', x: 2050, y: 3440 },
+    ],
+  },
+  yellow: {
+    name: 'Yellow Line', col: '#e3b21f', dark: '#9c7a12', light: '#ffe27a',
+    pts: [[2050, 3440], [4760, 3440]],
+    stations: [
+      { id: 'rvroad', name: 'R.V. Road', x: 2050, y: 3440 },
+      { id: 'ragigudda', name: 'Ragigudda', x: 2330, y: 3440 },
+      { id: 'jayadeva', name: 'Jayadeva Hospital', x: 2620, y: 3440 },
+      { id: 'btm', name: 'BTM Layout', x: 2860, y: 3440 },
+      { id: 'silkboard', name: 'Central Silk Board', x: 3140, y: 3440 },
+      { id: 'bommanahalli', name: 'Bommanahalli', x: 3740, y: 3440 },
+      { id: 'hongasandra', name: 'Hongasandra', x: 4340, y: 3440 },
     ],
   },
 };
-const B_INTERCHANGE = 'majestic';
+// Stations shared by two lines, and where you come down to the street there.
+const B_INTERCHANGES = { majestic: { x: 1528, y: 1430 }, rvroad: { x: 2078, y: 3470 } };
 
 // The Malgudi Express stops at both ends of the line.
 const B_STEAM_STOPS = [
@@ -167,7 +188,7 @@ const B_POSTCARDS = [
   { id: 'jayanagar', name: 'Jayanagar Blossom Avenue', x: 2300, y: 3260, r: 70, fact: 'Planned in 1948. When the pink tabebuias bloom, Bengaluru calls it cherry blossom season.' },
   { id: 'koramangala', name: 'Koramangala', x: 3600, y: 2810, r: 70, fact: 'Start-up offices, late-night cafes and a lot of laptops.' },
   { id: 'silkboard', name: 'Silk Board Junction', x: 3020, y: 3450, r: 70, fact: 'Famous for its traffic. Pack snacks.' },
-  { id: 'metro', name: 'Namma Metro', ride: true, x: 2540, y: 1428, fact: 'Opened in 2011. The Purple Line runs east to west, the Green Line north to south.' },
+  { id: 'metro', name: 'Namma Metro', ride: true, x: 2540, y: 1428, fact: 'Opened in 2011. Purple runs east to west, Green north to south, and the Yellow Line (2025) out past Silk Board.' },
   { id: 'express', name: 'Malgudi Express', ride: true, x: 1240, y: 1094, fact: 'The steam train between KSR Bengaluru City and Malgudi, across the Sarayu.' },
   { id: 'malgudi', name: 'Malgudi Station', x: 330, y: 1046, r: 60, fact: "R.K. Narayan's imaginary town. Shankar Nag filmed Malgudi Days (1986) in Agumbe." },
   { id: 'swami', name: 'Swami & Friends', x: 560, y: 2066, r: 50, fact: "Swami and Friends (1935) was R.K. Narayan's first novel. Swami still hasn't done his sums." },
@@ -185,7 +206,7 @@ const B_BUILDINGS = [
   // Race Course, Vidhana Soudha, Majestic.
   { spr: 'grandstand', x: 1775, y: 925, fw: 216, fd: 30, mcol: '#e9e2d4', signs: [{ x: 110, y: 43, text: 'BANGALORE TURF CLUB', size: 3.6, color: '#ffffff' }] },
   { spr: 'holidayinn', x: 2150, y: 1370, fw: 96, fd: 46, mcol: '#e9dfcc', signs: [{ x: 55, y: 26, text: 'HOLIDAY INN', size: 4.4, color: '#ffffff' }] },
-  { spr: 'vidhana', x: 2640, y: 1370, fw: 286, fd: 76, mcol: '#efe6d2', signs: [{ x: 150, y: 48.6, text: "GOVERNMENT'S WORK IS GOD'S WORK", size: 3, color: '#4b4136', outline: null }] },
+  { spr: 'vidhana', x: 2640, y: 1370, fw: 356, fd: 60, mcol: '#efe6d2', signs: [{ anchor: 'inscription', text: "GOVERNMENT'S WORK IS GOD'S WORK", size: 3, color: '#3a2a1a', outline: null }] },
   { spr: 'ksrcanopy', x: 1240, y: 1100, fw: 0, fd: 0, mcol: null },
   { spr: 'ksr', x: 1240, y: 1370, fw: 290, fd: 60, mcol: '#efe2c0', signs: [{ x: 150, y: 46.5, text: 'KSR BENGALURU CITY', size: 4, color: '#ffffff' }] },
   { spr: 'busstand', x: 1160, y: 1700, fw: 270, fd: 50, mcol: '#c9c2b6', signs: [{ x: 140, y: 6.5, text: 'KEMPEGOWDA BUS STATION', size: 3.8, color: '#ffffff' }] },
@@ -279,7 +300,7 @@ for (const x of [3144, 3456]) for (const y of [1208, 1392]) B_BUILDINGS.push({ s
   for (const y of [3170, 3240]) jrow([2110, 2164, 2218, 2272, 2326, 2380, 2434, 2488], y);
   for (const y of [3340, 3410]) jrow([1560, 1614, 1668, 1722, 1776, 1830, 1884, 1938, 2110, 2164, 2218, 2272, 2326, 2380, 2434, 2488, 2600, 2654, 2708, 2762, 2816, 2870, 2924], y);
   for (const y of [3510, 3590]) jrow([1560, 1614, 1668, 1722, 1776, 1830, 1884, 1938, 2110, 2164, 2218, 2272, 2326, 2380, 2434, 2488, 2600, 2654, 2708, 2762, 2816, 2870, 2924], y);
-  jrow([2600, 2700, 2900], 3170);
+  jrow([2600, 2910], 3170);
   jrow([1560, 1614, 1668, 1722, 1776, 1830, 1884], 3170);
   mrow([870, 1120, 1180, 1240, 1300, 1360, 1420], 300);
   mrow([880, 940, 1000, 1060, 1120, 1180, 1240, 1300, 1360, 1420], 640);

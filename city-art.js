@@ -48,56 +48,359 @@ function archWindow(r, x, y, w, h, frame, glass) {
   r(glass, x + 1, y, w - 2, 1);
 }
 
-const B_ART = {
-  vidhana: () => bcv(300, 140, (r) => {
-    const O = '#4b4136', G = '#e6dcc8', G2 = '#d3c7ae', G3 = '#b5a78b', G4 = '#8c7e64', WIN = '#4c4c58', WIN2 = '#6f7584';
-    const stone = ['#4b4136', '#f4ecdc', G, G3];
-    r(O, 4, 126, 292, 12); r(G3, 5, 127, 290, 10); r(G2, 5, 127, 290, 2);
-    // Wings with four floors of windows.
-    r(O, 8, 56, 284, 72); r(G, 9, 57, 282, 70); r(G3, 9, 59, 282, 2);
-    r(O, 6, 54, 288, 1); r(G2, 6, 55, 288, 2);
-    for (let x = 9; x < 291; x += 3) r(G, x, 52, 2, 2);
-    for (const y of [75, 93, 111]) r(G2, 9, y, 282, 2);
-    // Chhajjas: thin stone sunshades with a shadow line under them.
-    for (const y of [61, 79, 97, 114]) { r(G2, 9, y - 1, 282, 1); r(G4, 9, y, 282, 1); }
-    for (let x = 14; x < 288; x += 9) {
-      if (x > 88 && x < 210) continue;
-      for (const y of [62, 80, 98, 115]) { archWindow(r, x, y, 4, 8, G4, WIN); r(WIN2, x, y + 2, 1, 6); }
+// ---------------------------------------------------------------------------
+// 3D buildings. An oblique projection in the spirit of isometric map
+// illustration: every building shows its roof, its front and its right-hand
+// side, shaded roof-lightest, front-middle, side-darkest, with dark outlines.
+// x runs along the facade, y goes back into the picture, z goes up.
+// ---------------------------------------------------------------------------
+const OB = { SX: 0.42, SY: 0.58 };
+const LIGHT = (() => { const l = [-0.55, 0.62, 0.56], n = Math.hypot(...l); return l.map(v => v / n); })();
+
+// Fills a polygon by scanlines so its edges stay crisp pixels.
+function polyFill(c, pts, col) {
+  c.fillStyle = col;
+  let minY = Infinity, maxY = -Infinity;
+  for (const p of pts) { minY = Math.min(minY, p[1]); maxY = Math.max(maxY, p[1]); }
+  for (let y = Math.floor(minY); y < Math.ceil(maxY); y++) {
+    const yc = y + 0.5, xs = [];
+    for (let i = 0; i < pts.length; i++) {
+      const [x0, y0] = pts[i], [x1, y1] = pts[(i + 1) % pts.length];
+      if ((y0 <= yc && y1 > yc) || (y1 <= yc && y0 > yc)) xs.push(x0 + (yc - y0) / (y1 - y0) * (x1 - x0));
     }
-    // Corner towers with chhatri domes; the flag flies on the east one.
-    for (const tx of [8, 260]) {
-      r(O, tx, 34, 32, 22); r(G, tx + 1, 35, 30, 21); r(G2, tx + 1, 35, 30, 2); r(G3, tx + 27, 37, 4, 19);
-      for (let k = 0; k < 3; k++) archWindow(r, tx + 6 + k * 8, 42, 4, 9, G4, WIN);
-      bDome(r, tx + 16, 33, 9, 8, stone, 3);
+    xs.sort((a, b) => a - b);
+    for (let i = 0; i + 1 < xs.length; i += 2) { const a = Math.round(xs[i]), b = Math.round(xs[i + 1]); if (b > a) c.fillRect(a, y, b - a, 1); }
+  }
+}
+
+function pixLine(c, [x0, y0], [x1, y1], col) {
+  c.fillStyle = col;
+  x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
+  const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+  let err = dx + dy;
+  for (;;) {
+    c.fillRect(x0, y0, 1, 1);
+    if (x0 === x1 && y0 === y1) break;
+    const e2 = 2 * err;
+    if (e2 >= dy) { err += dy; x0 += sx; }
+    if (e2 <= dx) { err += dx; y0 += sy; }
+  }
+}
+
+// Picks a colour from a dark-to-light ramp for a brightness, with ordered dithering.
+function rampAt(ramp, v, x, y) {
+  const t = clamp(v, 0, 1) * (ramp.length - 1) + (BAYER[y & 3][x & 3] / 16 - 0.47) * 0.7;
+  return ramp[clamp(Math.round(t), 0, ramp.length - 1)];
+}
+
+function b3dCanvas(w, h, ox, oy, fn) {
+  return bcv(w, h, (r, c) => {
+    const P = (x, y, z) => [ox + x + y * OB.SX, oy - z - y * OB.SY];
+    const g = {
+      r, c, P,
+      // A box: right side, roof, then front; returns the front face rectangle.
+      box(x, y, z, w, d, h, col) {
+        const O = col.line || '#3a2a1a';
+        const side = [P(x + w, y, z), P(x + w, y + d, z), P(x + w, y + d, z + h), P(x + w, y, z + h)];
+        const top = [P(x, y, z + h), P(x + w, y, z + h), P(x + w, y + d, z + h), P(x, y + d, z + h)];
+        if (col.side) polyFill(c, side, col.side);
+        if (col.top) polyFill(c, top, col.top);
+        const [fx, fy] = P(x, y, z + h);
+        const fw = Math.round(w), fh = Math.round(h);
+        if (col.front) r(col.front, Math.round(fx), Math.round(fy), fw, fh);
+        if (O) {
+          if (col.top) { pixLine(c, top[0], top[3], O); pixLine(c, top[3], top[2], O); pixLine(c, top[1], top[2], O); }
+          if (col.side) { pixLine(c, side[0], side[1], O); pixLine(c, side[1], side[2], O); }
+          r(O, Math.round(fx), Math.round(fy), fw + 1, 1);
+          r(O, Math.round(fx), Math.round(fy), 1, fh);
+          r(O, Math.round(fx) + fw, Math.round(fy), 1, fh);
+          r(O, Math.round(fx), Math.round(fy) + fh - 1, fw + 1, 1);
+        }
+        return { x: Math.round(fx), y: Math.round(fy), w: fw, h: fh };
+      },
+      // A vertical cylinder (columns, drums), shaded across its width.
+      cyl(x, y, z, rad, h, ramp, line = '#3a2a1a') {
+        const [cx, cy] = P(x, y, z);
+        for (let i = -rad; i <= rad; i++) {
+          const nx = i / (rad + 0.5), nz = Math.sqrt(Math.max(0, 1 - nx * nx));
+          const v = nx * LIGHT[0] + nz * LIGHT[2] + 0.25;
+          for (let j = 0; j < h; j++) r(rampAt(ramp, v, i + 64, j), Math.round(cx + i), Math.round(cy - j), 1, 1);
+        }
+        if (line) { r(line, Math.round(cx - rad - 1), Math.round(cy - h), 1, h); r(line, Math.round(cx + rad + 1), Math.round(cy - h), 1, h); }
+      },
+      // A dome on a circular base; onion > 0 bulges it and draws a point on top.
+      dome(x, y, z, rad, h, ramp, onion = 0, line = '#3a2a1a', ribs = 0) {
+        const [cx, cy] = P(x, y, z);
+        const widthAt = t => rad * Math.sqrt(Math.max(0, 1 - t * t)) * (1 + onion * 0.22 * Math.sin(Math.PI * Math.min(1, t * 1.15)));
+        const rows = [];
+        for (let j = 0; j <= h; j++) {
+          const t = j / h, half = widthAt(t);
+          rows.push([Math.round(cy - j), Math.round(cx - half), Math.round(cx + half), t]);
+        }
+        for (const [yy, a, b] of rows) r(line, a - 1, yy - 1, b - a + 3, 2);
+        for (const [yy, a, b, t] of rows) {
+          for (let xx = a; xx <= b; xx++) {
+            const nx = (xx - cx) / Math.max(1, (b - a) / 2), el = Math.asin(Math.min(1, t));
+            const n = [nx * Math.cos(el), Math.sin(el), Math.sqrt(Math.max(0, 1 - nx * nx)) * Math.cos(el)];
+            let v = n[0] * LIGHT[0] + n[1] * LIGHT[1] + n[2] * LIGHT[2] + 0.12;
+            if (ribs && t < 0.92 && Math.round(Math.asin(clamp(nx, -1, 1)) * ribs) % 2 === 0 && Math.abs(Math.asin(clamp(nx, -1, 1)) * ribs % 1) < 0.18) v -= 0.16;
+            r(rampAt(ramp, v, xx, yy), xx, yy, 1, 1);
+          }
+        }
+        if (onion) { r(line, Math.round(cx) - 1, Math.round(cy - h) - 4, 3, 4); r(ramp[ramp.length - 2], Math.round(cx), Math.round(cy - h) - 4, 1, 3); }
+        return [cx, cy - h];
+      },
+    };
+    fn(g);
+  });
+}
+
+// Vidhana Soudha, from the front steps: arcaded wings with a parapet of tiny
+// spires, square towers with tiered chhatri roofs, a portico of twelve
+// columns under a deep sloping cornice, the Karnataka emblem and the flag on
+// the gable, and the great dome with the Ashoka lion capital.
+function bVidhana3D() {
+  const W0 = 396, H0 = 246, OX = 4, OY = H0 - 23;
+  const SAND = ['#3a2a1a', '#634a2c', '#86663f', '#a88552', '#c6a067', '#dbb97e', '#ebd09c', '#f6e3b8'];
+  const GOLD = ['#4a3410', '#7a5a1a', '#a87e24', '#d4a83a', '#f0cc5c', '#fff0a8'];
+  const F = { front: '#d2ae74', top: '#e9cf98', side: '#a07e50', line: '#3a2a1a' };
+  const REC = '#664c2e', DEEP = '#3f2e1c', LIT = '#efd8a4', MID = '#b8955f', TEAL = '#7fbfa8';
+  let inscription = null;
+  const img = b3dCanvas(W0, H0, OX, OY, g => {
+    const { r, P } = g;
+    const finials = (x0, x1, y, z, step = 5) => {
+      for (let x = x0 + 2; x < x1 - 1; x += step) {
+        const [sx, sy] = P(x, y, z);
+        const X = Math.round(sx), Y = Math.round(sy);
+        r('#3a2a1a', X - 1, Y - 6, 3, 6); r(LIT, X, Y - 6, 1, 5); r(MID, X + 1, Y - 4, 1, 3); r('#3a2a1a', X, Y - 8, 1, 2);
+      }
+    };
+    const lotus = (x, y, z) => {
+      const [sx, sy] = P(x, y, z);
+      const X = Math.round(sx), Y = Math.round(sy);
+      r('#3a2a1a', X - 3, Y - 7, 7, 7); r(LIT, X - 2, Y - 6, 5, 4); r(MID, X - 2, Y - 3, 5, 2); r(LIT, X - 1, Y - 8, 3, 2); r('#3a2a1a', X, Y - 10, 1, 2);
+    };
+    const rosette = (cx, cy, rad) => {
+      for (let yy = -rad; yy <= rad; yy++) for (let xx = -rad; xx <= rad; xx++) {
+        const d = Math.hypot(xx, yy);
+        if (d > rad + 0.3) continue;
+        r(d > rad - 1 ? '#3a2a1a' : d > rad - 2.2 ? LIT : (Math.round(Math.atan2(yy, xx) * 4 / Math.PI) & 1) ? MID : REC, cx + xx, cy + yy, 1, 1);
+      }
+      r(LIT, cx, cy, 1, 1);
+    };
+    const rustic = (f, step = 4) => { for (let y = f.y + 2; y < f.y + f.h - 1; y += step) { r(MID, f.x + 1, y, f.w - 1, 1); for (let x = f.x + 2 + ((y / step) % 2) * 4; x < f.x + f.w - 1; x += 8) r(MID, x, y - step + 1, 1, step - 1); } };
+
+    // The plinth everything stands on.
+    g.box(0, 6, 0, 360, 64, 16, { front: '#bf9d6c', top: '#e3c690', side: '#8f7048' });
+
+    // Back: the block behind the portico, the drum, kiosks and the great dome.
+    g.box(124, 34, 16, 112, 34, 86, F);
+    for (const [kx, ky] of [[136, 40], [224, 40]]) {
+      g.box(kx - 7, ky - 7, 102, 14, 14, 10, F);
+      g.dome(kx, ky, 112, 8, 9, SAND, 1);
     }
-    r(O, 276, 6, 1, 20);
-    r('#ef8b2c', 277, 6, 9, 2); r('#ffffff', 277, 8, 9, 2); r('#2f8a3a', 277, 10, 9, 2); r('#2f4f8a', 281, 8, 1, 2);
-    // Central block and portico of twelve columns.
-    r(O, 90, 38, 120, 90); r(G, 91, 39, 118, 89);
-    r(G2, 91, 41, 118, 3);
-    r(G3, 92, 46, 116, 6);           // band for the inscription
-    r('#7d715d', 93, 56, 114, 62);
-    for (let k = 0; k < 6; k++) for (let j = 0; j < 3; j++) r('#5f5547', 98 + k * 18, 62 + j * 18, 8, 10);
+    // Two-tier drum: arched windows, a cornice ring, then a balustrade.
+    g.cyl(180, 52, 102, 27, 19, SAND);
+    for (let a = 0; a < 12; a++) {
+      const k = (a + 0.5) / 12 * 2 - 1;
+      const [sx, sy] = P(180, 52, 104);
+      const x = Math.round(sx + k * 24);
+      r(REC, x - 1, Math.round(sy) - 13, 3, 11); r(DEEP, x, Math.round(sy) - 12, 1, 9); r(LIT, x - 2, Math.round(sy) - 14, 1, 12);
+    }
+    g.cyl(180, 52, 121, 31, 3, SAND);
+    g.cyl(180, 52, 124, 26, 7, SAND);
+    { const [sx, sy] = P(180, 52, 124); for (let x = -25; x < 26; x += 3) r(REC, Math.round(sx) + x, Math.round(sy) - 5, 1, 4); }
+    const [dx, dy] = g.dome(180, 52, 131, 28, 40, SAND, 0.7, '#3a2a1a', 3.2);
+    // Carved crests round the foot of the dome and a band of scallops.
+    for (const k of [-0.75, -0.25, 0.25, 0.75]) {
+      const [sx, sy] = P(180, 52, 134);
+      const X = Math.round(sx + k * 27), Y = Math.round(sy);
+      r('#3a2a1a', X - 2, Y - 9, 5, 9); r(LIT, X - 1, Y - 8, 3, 7); r(MID, X, Y - 6, 1, 4); r('#3a2a1a', X, Y - 11, 1, 2);
+    }
+    for (let k = -2; k <= 2; k++) { const [sx, sy] = P(180, 52, 150); r(MID, Math.round(sx + k * 9) - 2, Math.round(sy), 5, 1); r(MID, Math.round(sx + k * 9) - 3, Math.round(sy) + 1, 1, 1); r(MID, Math.round(sx + k * 9) + 3, Math.round(sy) + 1, 1, 1); }
+    // Lantern and the Ashoka lion capital.
+    r('#3a2a1a', Math.round(dx) - 6, Math.round(dy) - 4, 13, 6); r('#9cc4dc', Math.round(dx) - 5, Math.round(dy) - 3, 11, 3); r(LIT, Math.round(dx) - 6, Math.round(dy) - 5, 13, 2);
+    { // Ashoka lion capital: a round abacus, then lions standing back to back.
+      const X = Math.round(dx), Y = Math.round(dy) - 6;
+      r(GOLD[0], X - 7, Y - 4, 15, 5); r(GOLD[3], X - 6, Y - 3, 13, 2); r(GOLD[1], X - 6, Y - 1, 13, 1); r(GOLD[4], X - 1, Y - 3, 2, 2);
+      r(GOLD[0], X - 7, Y - 17, 15, 14);
+      for (const [lx, f] of [[-6, -1], [1, 1]]) {
+        r(GOLD[3], X + lx, Y - 13, 5, 9);
+        r(GOLD[4], X + lx + (f < 0 ? 0 : 4), Y - 16, 1, 6);
+        r(GOLD[3], X + lx + (f < 0 ? 0 : 1), Y - 16, 4, 4);
+        r(GOLD[2], X + lx + 1, Y - 8, 3, 4);
+        r(GOLD[0], X + lx + (f < 0 ? 1 : 3), Y - 14, 1, 1);
+      }
+      r(GOLD[1], X - 1, Y - 15, 2, 11); r(GOLD[4], X - 6, Y - 17, 2, 1); r(GOLD[4], X + 4, Y - 17, 2, 1);
+    }
+
+    // Wings: three floors of arches with a parapet of small spires.
+    for (const wx of [34, 262]) {
+      const f = g.box(wx, 18, 16, 64, 50, 66, F);
+      for (const [z0, hgt] of [[18, 18], [38, 18], [58, 16]]) {
+        const [, by] = P(wx, 18, z0 + hgt);
+        r('#c4a878', f.x + 1, Math.round(by) - 2, f.w - 1, 2); r(LIT, f.x + 1, Math.round(by) - 3, f.w - 1, 1);
+        for (let x = f.x + 3; x < f.x + f.w - 5; x += 8) {
+          const y0 = Math.round(by) + 1;
+          r(REC, x, y0 + 2, 6, hgt - 4); r(REC, x + 1, y0 + 1, 4, 1);
+          r(DEEP, x + 1, y0 + 3, 4, hgt - 6);
+          r(LIT, x - 1, y0, 1, hgt - 2); r(MID, x + 6, y0, 1, hgt - 2);
+          r(MID, x, y0 + hgt - 5, 6, 1); for (let b = 0; b < 6; b += 2) r(LIT, x + b, y0 + hgt - 7, 1, 2);
+        }
+      }
+      // The side wall shows its arches too.
+      if (wx > 200) for (let d = 6; d < 48; d += 8) for (const z of [24, 44, 62]) { const [sx, sy] = P(wx + 64, 18 + d, z); r('#5a4630', Math.round(sx), Math.round(sy) - 8, 2, 8); }
+      const [tx0, ty0] = P(wx, 18, 82);
+      r('#3a2a1a', f.x, Math.round(ty0), f.w + 1, 1);
+      finials(wx, wx + 64, 18, 82, 5);
+      finials(wx, wx + 64, 68, 82, 7);
+    }
+
+    // Corner towers with tiered chhatri roofs.
+    for (const tx of [4, 326]) {
+      const f = g.box(tx, 14, 16, 30, 30, 92, F);
+      rustic(f);
+      const cx = f.x + 15;
+      r(REC, cx - 3, f.y + 30, 7, 40); r(DEEP, cx - 2, f.y + 32, 5, 37); r(REC, cx - 2, f.y + 29, 5, 1);
+      r(LIT, cx - 5, f.y + 70, 11, 2); for (let b = 0; b < 10; b += 2) r(MID, cx - 4 + b, f.y + 66, 1, 4);
+      rosette(cx, f.y + 18, 5);
+      g.box(tx - 3, 11, 108, 36, 36, 3, { front: MID, top: LIT, side: '#94784e' });
+      g.box(tx + 3, 17, 111, 24, 24, 9, F);
+      for (let x = 0; x < 24; x += 4) { const [sx, sy] = P(tx + 4 + x, 17, 118); r(REC, Math.round(sx), Math.round(sy) - 5, 2, 5); }
+      g.box(tx, 14, 120, 30, 30, 2, { front: MID, top: LIT, side: '#94784e' });
+      g.dome(tx + 15, 29, 122, 12, 14, SAND, 1);
+    }
+
+    // Square towers either side of the portico, with rosettes and balconies.
+    for (const tx of [96, 238]) {
+      const f = g.box(tx, 8, 16, 26, 40, 98, F);
+      rustic(f);
+      const cx = f.x + 13;
+      rosette(cx, f.y + 20, 6);
+      r('#3a2a1a', cx - 7, f.y + 34, 15, 3); r(LIT, cx - 6, f.y + 34, 13, 1);
+      r(REC, cx - 4, f.y + 37, 9, 12); r('#6f93b0', cx - 3, f.y + 38, 7, 9); r(LIT, cx, f.y + 38, 1, 9);
+      r(MID, cx - 6, f.y + 49, 13, 3); for (let b = 0; b < 12; b += 2) r(LIT, cx - 6 + b, f.y + 49, 1, 3);
+      r(REC, cx - 4, f.y + 62, 9, 18); r(DEEP, cx - 3, f.y + 64, 7, 16);
+      g.box(tx - 3, 5, 114, 32, 46, 3, { front: MID, top: LIT, side: '#94784e' });
+      g.box(tx + 4, 18, 117, 18, 18, 6, F);
+      g.dome(tx + 13, 27, 123, 10, 11, SAND, 1);
+    }
+
+    // The portico: recessed wall with teal-trimmed doors, then twelve columns.
+    const back = g.box(122, 12, 16, 116, 22, 70, { front: REC, top: null, side: null });
+    for (let x = back.x + 6; x < back.x + back.w - 8; x += 19) {
+      r(DEEP, x, back.y + 30, 10, 40); r(TEAL, x - 1, back.y + 28, 12, 2); r(TEAL, x - 1, back.y + 30, 2, 40); r(TEAL, x + 9, back.y + 30, 2, 40);
+      r('#9a8058', x + 2, back.y + 34, 6, 10); r('#6f93b0', x + 2, back.y + 10, 6, 9);
+    }
     for (let i = 0; i < 12; i++) {
-      const x = 96 + Math.round(i * 9.6);
-      r(O, x - 1, 54, 6, 64); r(G, x, 56, 4, 61); r('#f8f1e3', x, 56, 1, 61); r(G3, x + 3, 56, 1, 61);
-      r(G2, x - 1, 54, 6, 3); r(G2, x - 1, 114, 6, 3);
+      const x = 127 + i * 9.6;
+      g.cyl(x, 3, 20, 3, 62, SAND);
+      const [sx, sy] = P(x, 3, 20);
+      r('#3a2a1a', Math.round(sx) - 4, Math.round(sy) - 1, 9, 5); r(MID, Math.round(sx) - 3, Math.round(sy), 7, 3);
+      r('#3a2a1a', Math.round(sx) - 5, Math.round(sy) - 70, 11, 7); r(LIT, Math.round(sx) - 4, Math.round(sy) - 69, 9, 2); r(MID, Math.round(sx) - 4, Math.round(sy) - 67, 9, 2);
+      r('#3a2a1a', Math.round(sx) - 3, Math.round(sy) - 64, 7, 3); r(MID, Math.round(sx) - 2, Math.round(sy) - 64, 5, 2);
+      for (const zz of [8, 16, 50]) r(MID, Math.round(sx) - 3, Math.round(sy) - zz, 7, 1);
+      r(MID, Math.round(sx) - 3, Math.round(sy) - 30, 7, 1);
     }
-    r(G2, 91, 52, 118, 3); r(O, 91, 55, 118, 1);
-    // Drum, main dome and side domes.
-    r(O, 120, 22, 60, 17); r(G, 121, 23, 58, 16); r(G2, 121, 23, 58, 2);
-    for (let x = 124; x < 178; x += 6) archWindow(r, x, 28, 3, 8, G4, WIN);
-    bDome(r, 150, 21, 27, 17, stone, 4);
-    // The four-lion capital on top of the dome.
-    r('#3a3530', 146, 0, 9, 4); r('#e2b54a', 147, 0, 7, 3); r('#b8892a', 148, 2, 5, 1); r('#fff3c8', 148, 0, 1, 1); r('#fff3c8', 152, 0, 1, 1);
-    bDome(r, 98, 37, 7, 6, stone, 3);
-    bDome(r, 202, 37, 7, 6, stone, 3);
-    // Wide front steps.
-    for (let k = 0; k < 7; k++) {
-      const y = 118 + k * 3, x0 = 100 - k * 3, w = 100 + k * 6;
-      r(O, x0, y, w, 1); r(k % 2 ? G2 : G, x0, y + 1, w, 2);
+    // The deep sloping cornice, its shadow, the parapet of lotus finials.
+    const cor = g.box(112, -12, 85, 136, 28, 8, { front: '#9a7a50', top: '#ead2a0', side: '#8f7048' });
+    r('#3f2e1c', cor.x + 1, cor.y + cor.h, cor.w - 1, 3);
+    for (let x = cor.x + 3; x < cor.x + cor.w - 2; x += 6) r('#7a5e3c', x, cor.y + 2, 2, cor.h - 3);
+    inscription = { x: cor.x + cor.w / 2, y: cor.y + cor.h / 2 };
+    g.box(122, 2, 92, 116, 6, 6, F);
+    for (let x = 126; x < 236; x += 11) if (Math.abs(x - 180) > 18) lotus(x, 2, 98);
+    // Central gable with the Karnataka emblem, a small dome and the flag.
+    const gb = g.box(162, 1, 98, 36, 8, 18, F);
+    r('#3a2a1a', gb.x + 9, gb.y + 3, 19, 14); r('#e6b33a', gb.x + 10, gb.y + 4, 17, 12);
+    r('#d8433b', gb.x + 12, gb.y + 6, 13, 8); r('#2f8a3a', gb.x + 12, gb.y + 11, 13, 3); r('#ffffff', gb.x + 17, gb.y + 7, 3, 5); r('#e6b33a', gb.x + 16, gb.y + 5, 5, 1);
+    g.dome(180, 5, 116, 9, 10, SAND, 1);
+    { const [px, py] = P(188, 6, 116); const X = Math.round(px), Y = Math.round(py);
+      r('#3a2a1a', X, Y - 40, 1, 40);
+      r('#ef8b2c', X + 1, Y - 40, 11, 3); r('#ffffff', X + 1, Y - 37, 11, 3); r('#2f8a3a', X + 1, Y - 34, 11, 3); r('#2f4f8a', X + 6, Y - 37, 1, 3); r('#2f4f8a', X + 5, Y - 36, 3, 1);
     }
-  }),
+
+    // The grand staircase with its balustrades.
+    for (let k = 0; k < 8; k++) {
+      const y0 = -32 + k * 4;
+      g.box(132, y0, 0, 96, 4, 2 + k * 2, { front: k % 2 ? '#d4b98a' : '#e2c999', top: LIT, side: null, line: k === 0 ? '#3a2a1a' : null });
+    }
+    for (const bx of [128, 228]) g.box(bx, -32, 0, 4, 32, 18, { front: MID, top: LIT, side: '#94784e' });
+  });
+  img.anchors = { inscription };
+  img.fw = W0 - 30;
+  img.oy = 0;
+  return img;
+}
+
+// Gives a flat front-elevation sprite depth: a roof plane receding up and to
+// the right and a shaded side wall, so it reads as a solid building. Rows
+// above `cut` (domes, spires) are not extruded; they sit at mid-depth instead.
+function bExtrude(src, depth, cut = 0) {
+  const dx = Math.ceil(depth * OB.SX), dy = Math.ceil(depth * OB.SY);
+  const w = src.width, h = src.height;
+  const sd = src.getContext('2d').getImageData(0, 0, w, h).data;
+  const side = new ImageData(w, h), top = new ImageData(w, h);
+  const at = (x, y) => (y * w + x) * 4;
+  const solid = (x, y) => x >= 0 && y >= 0 && x < w && y < h && sd[at(x, y) + 3] >= 128;
+  const lum = i => sd[i] * 0.3 + sd[i + 1] * 0.59 + sd[i + 2] * 0.11;
+  // Walks from (x, y) in a direction until it finds a pixel that isn't outline.
+  const sample = (x, y, ddx, ddy) => {
+    for (let k = 1; k < 8; k++) {
+      const xx = x + ddx * k, yy = y + ddy * k;
+      if (!solid(xx, yy)) break;
+      if (lum(at(xx, yy)) > 62) return at(xx, yy);
+    }
+    return at(x, y);
+  };
+  for (let y = cut; y < h; y++) {
+    let xr = -1;
+    for (let x = w - 1; x >= 0; x--) if (solid(x, y)) { xr = x; break; }
+    if (xr < 0) continue;
+    const wall = sample(xr, y, -1, 0);
+    for (let x = 0; x <= xr; x++) {
+      if (!solid(x, y)) continue;
+      const i = at(x, y);
+      // Side walls: the wall colour of this row, darker and a touch cooler.
+      side.data[i] = sd[wall] * 0.62; side.data[i + 1] = sd[wall + 1] * 0.6; side.data[i + 2] = Math.min(255, sd[wall + 2] * 0.66 + 10); side.data[i + 3] = 255;
+      // Roof: along the top edge, coloured from the wall just below the outline.
+      if (y === cut || !solid(x, y - 1)) {
+        const j = sample(x, y, 0, 1);
+        top.data[i] = Math.min(255, sd[j] * 1.06 + 16); top.data[i + 1] = Math.min(255, sd[j + 1] * 1.06 + 16); top.data[i + 2] = Math.min(255, sd[j + 2] * 1.06 + 12); top.data[i + 3] = 255;
+      }
+    }
+  }
+  const mk = data => { const cv = document.createElement('canvas'); cv.width = w; cv.height = h; cv.getContext('2d').putImageData(data, 0, 0); return cv; };
+  const sideC = mk(side), topC = mk(top);
+  const out = document.createElement('canvas');
+  out.width = w + dx + 1;
+  out.height = h + dy;
+  const c = out.getContext('2d');
+  for (let k = depth; k >= 1; k--) {
+    const ox = Math.round(k * OB.SX), oy = dy - Math.round(k * OB.SY);
+    c.drawImage(sideC, ox, oy);
+    c.drawImage(topC, ox, oy);
+  }
+  // The back edge of the roof gets an outline so the block reads cleanly.
+  if (cut) c.drawImage(src, 0, 0, w, cut, Math.round(depth / 2 * OB.SX), dy - Math.round(depth / 2 * OB.SY), w, cut);
+  c.drawImage(src, 0, cut, w, h - cut, 0, dy + cut, w, h - cut);
+  out.fw = w;
+  out.oy = dy;
+  out.anchors = src.anchors;
+  return out;
+}
+
+// How deep each kind of building is drawn, and where its domes start.
+const B_DEPTH = {
+  highcourt: [44], library: [30, 20], holidayinn: [40], ksr: [44], busstand: [40], freedom: [34, 6], townhall: [40],
+  museum: [32], stmarks: [36, 32], ubcity: [56], krmarket: [26], fort: [18], tipu: [38], bulltemple: [32],
+  malleshwara: [32], vidyarthi: [20], cinema: [28], mtr: [22], darshini: [14], complex: [32], bakery: [18],
+  school: [30], temple: [24], mstation: [26], hut: [16], glasshouse: [44], grandstand: [24], palace: [56],
+  gurudwara: [30, 32], shop: [20], office0: [44], office1: [40], office2: [44], apartment0: [32], apartment1: [32],
+  apartment2: [32], jhouse: [18], mhouse: [16],
+};
+
+const B_ART = {
+  vidhana: () => bVidhana3D(),
 
   // Attara Kacheri: two floors of red verandahs behind paired white columns,
   // a pedimented central portico and a sloping tiled roof.
@@ -461,7 +764,6 @@ const B_ART = {
     }
     // The central entrance and the flag on the great tower.
     r(O, 152, 120, 26, 36); r('#4a3020', 154, 124, 22, 32); r('#4a3020', 156, 122, 18, 2); r('#6b4a32', 164, 124, 2, 32);
-    r(O, 164, 0, 1, 10); r('#d8433b', 165, 0, 8, 3); r('#f2c94c', 165, 3, 8, 3);
     // Creeping ivy.
     for (let i = 0; i < 40; i++) {
       const x = 16 + Math.floor(rnd() * 296), y = 110 + Math.floor(rnd() * 40), w = 3 + Math.floor(rnd() * 8);

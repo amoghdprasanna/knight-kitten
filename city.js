@@ -77,7 +77,7 @@ const B_STATIONS = (() => {
     for (const st of L.stations) {
       if (!out[st.id]) {
         const axis = linePoint(L, st.s).axis;
-        const exit = st.id === B_INTERCHANGE ? { x: 1528, y: 1430 } : axis === 'h' ? { x: st.x, y: st.y + 28 } : { x: st.x + 26, y: st.y };
+        const exit = B_INTERCHANGES[st.id] ? { ...B_INTERCHANGES[st.id] } : axis === 'h' ? { x: st.x, y: st.y + 28 } : { x: st.x + 26, y: st.y };
         out[st.id] = { id: st.id, name: st.name, lines: [], ...exit };
       }
       out[st.id].lines.push(lid);
@@ -97,11 +97,16 @@ function buildCity() {
   sprites.stairsG = B_ART.stairs(B_LINES.green.col);
   for (let i = 0; i < 6; i++) sprites[`jhouse${i}`] = bHouseJ(i);
   for (let i = 0; i < 4; i++) sprites[`mhouse${i}`] = bHouseM(i);
+  // Give the flat elevations depth: roofs and side walls.
+  for (const k of Object.keys(sprites)) {
+    const d = B_DEPTH[k] || B_DEPTH[k.replace(/\d+$/, '')];
+    if (d) sprites[k] = bExtrude(sprites[k], d[0], d[1] || 0);
+  }
   const shops = new Map();
   for (const b of B_BUILDINGS) {
     if (!b.shop) continue;
     const key = b.shop.join();
-    if (!shops.has(key)) shops.set(key, B_ART.shop(...b.shop));
+    if (!shops.has(key)) shops.set(key, bExtrude(B_ART.shop(...b.shop), B_DEPTH.shop[0]));
     b.img = shops.get(key);
   }
   for (const b of B_BUILDINGS) if (!b.img) b.img = sprites[b.spr];
@@ -112,7 +117,7 @@ function buildCity() {
   BL.statics = [];
   for (const b of B_BUILDINGS) {
     const img = b.img;
-    BL.statics.push({ kind: 'bld', b, img, x: Math.round(b.x - img.width / 2), y: b.y - img.height + 1, base: b.y, w: img.width, h: img.height });
+    BL.statics.push({ kind: 'bld', b, img, x: Math.round(b.x - (img.fw || img.width) / 2), y: b.y - img.height + 1, base: b.y, w: img.width, h: img.height });
   }
   buildBlockedMask();
   placeTrees();
@@ -1076,10 +1081,37 @@ window.addEventListener('pointerdown', e => {
 // ---------------------------------------------------------------------------
 // Rides: Namma Metro (pick a station) and the Malgudi Express.
 // ---------------------------------------------------------------------------
-const B_COLS = ['purple', 'green'];
+const B_COLS = ['purple', 'green', 'yellow'];
+
+// The lines to ride from one station to another, changing at interchanges:
+// a list of legs { line, a, b } with station ids.
+function routeLegs(fromId, toId) {
+  const from = B_STATIONS[fromId], to = B_STATIONS[toId];
+  const prev = new Map(), queue = [];
+  for (const l of from.lines) { prev.set(l, null); queue.push(l); }
+  while (queue.length) {
+    const l = queue.shift();
+    if (to.lines.includes(l)) {
+      const lines = [], vias = [];
+      for (let cur = l; cur;) {
+        lines.unshift(cur);
+        const p = prev.get(cur);
+        if (!p) break;
+        vias.unshift(p.via);
+        cur = p.l;
+      }
+      return lines.map((ln, i) => ({ line: ln, a: i ? vias[i - 1] : fromId, b: i < lines.length - 1 ? vias[i] : toId }));
+    }
+    for (const ic of Object.keys(B_INTERCHANGES)) {
+      if (!B_STATIONS[ic].lines.includes(l)) continue;
+      for (const l2 of B_STATIONS[ic].lines) if (!prev.has(l2)) { prev.set(l2, { l, via: ic }); queue.push(l2); }
+    }
+  }
+  return [];
+}
 
 function openRidePicker(st) {
-  const col = st.lines[0] === 'green' ? 1 : 0;
+  const col = B_COLS.indexOf(st.lines[0]);
   const stations = B_LINES[B_COLS[col]].stations;
   let row = stations.findIndex(s => s.id === st.id);
   row = row === stations.length - 1 ? row - 1 : row + 1;
@@ -1092,25 +1124,19 @@ function confirmRide() {
   const lineId = B_COLS[R.sel.col];
   const to = B_LINES[lineId].stations[R.sel.row];
   if (to.id === R.from) { sfx.hurt(); return; }
-  const from = B_STATIONS[R.from];
   const sOf = (lid, id) => B_LINES[lid].stations.find(s => s.id === id).s;
-  const mk = (lid, a, b, toName) => ({ line: lid, a, b, toName, dur: 2.6 + Math.abs(b - a) / 300 });
-  const segs = [];
-  const shared = from.lines.includes(lineId) ? lineId : B_STATIONS[to.id].lines.find(l => from.lines.includes(l));
-  if (shared) segs.push(mk(shared, sOf(shared, R.from), sOf(shared, to.id), to.name));
-  else {
-    const other = from.lines[0];
-    segs.push(mk(other, sOf(other, R.from), sOf(other, B_INTERCHANGE), B_STATIONS[B_INTERCHANGE].name));
-    segs.push(mk(lineId, sOf(lineId, B_INTERCHANGE), to.s, to.name));
-  }
-  Object.assign(R, { phase: 'ride', to: to.id, segs, seg: 0, t: 0, s: segs[0].a, speed: 0, said1: false, said2: false, caption: null });
+  const segs = routeLegs(R.from, to.id).map(leg => ({
+    line: leg.line, a: sOf(leg.line, leg.a), b: sOf(leg.line, leg.b), toName: B_STATIONS[leg.b].name, at: leg.b,
+    dur: 3 + Math.abs(sOf(leg.line, leg.b) - sOf(leg.line, leg.a)) / 300,
+  }));
+  Object.assign(R, { phase: 'ride', view: BL.rideView || 'window', to: to.id, segs, seg: 0, t: 0, s: segs[0].a, speed: 0, said1: false, said2: false, caption: null });
   setMusic('metro');
   sfx.chime();
 }
 
 function startSteamRide(fromIdx) {
   const a = B_STEAM_STOPS[fromIdx], b = B_STEAM_STOPS[1 - fromIdx];
-  BL.ride = { kind: 'steam', phase: 'ride', to: b.id, segs: [{ line: 'steam', a: a.x, b: b.x, toName: b.name, dur: 7 }], seg: 0, t: 0, s: a.x, speed: 0, said1: false, said2: false, caption: null };
+  BL.ride = { kind: 'steam', phase: 'ride', view: BL.rideView || 'window', to: b.id, segs: [{ line: 'steam', a: a.x, b: b.x, toName: b.name, dur: 7 }], seg: 0, t: 0, s: a.x, speed: 0, said1: false, said2: false, caption: null };
   setMusic('malgudi');
   bWhistle();
 }
@@ -1121,7 +1147,7 @@ function rideTick(dt) {
     if (input.pressed.pause || input.pressed.map) { BL.ride = null; return; }
     const nx = Math.abs(input.mx) > 0.5 ? Math.sign(input.mx) : 0, ny = Math.abs(input.my) > 0.5 ? Math.sign(input.my) : 0;
     if ((nx || ny) && (nx !== R.nav.x || ny !== R.nav.y)) {
-      if (nx) R.sel.col = clamp(R.sel.col + nx, 0, 1);
+      if (nx) R.sel.col = clamp(R.sel.col + nx, 0, B_COLS.length - 1);
       R.sel.row = clamp(R.sel.row + ny, 0, B_LINES[B_COLS[R.sel.col]].stations.length - 1);
       sfx.blip();
     }
@@ -1129,6 +1155,7 @@ function rideTick(dt) {
     if (input.pressed.jump || input.pressed.attack) confirmRide();
     return;
   }
+  if (input.pressed.view) { R.view = BL.rideView = R.view === 'window' ? 'outside' : 'window'; sfx.blip(); }
   R.t += dt;
   const seg = R.segs[R.seg];
   const k = clamp(R.t / seg.dur, 0, 1);
@@ -1149,7 +1176,7 @@ function rideTick(dt) {
   if (k < 1) return;
   if (R.seg < R.segs.length - 1) {
     R.seg++; R.t = 0; R.said1 = false; R.said2 = false;
-    R.caption = { kn: `Itta nildana: ${B_STATIONS[B_INTERCHANGE].name}`, en: `Change here for the ${B_LINES[R.segs[R.seg].line].name}`, t: 2.4 };
+    R.caption = { kn: `Ee nildana: ${R.segs[R.seg - 1].toName}`, en: `Change here for the ${B_LINES[R.segs[R.seg].line].name}`, t: 2.4 };
     bChime();
     return;
   }
@@ -1161,21 +1188,6 @@ function rideTick(dt) {
   bChime();
   const stamp = stop ? 'express' : 'metro';
   if (!SAVE.city.stamps.includes(stamp)) bStamp(stamp);
-}
-
-// Landmarks seen out of the window: along the line, and how far from it.
-function rideScenery(seg) {
-  if (seg.scenery) return seg.scenery;
-  const out = [];
-  for (const b of B_BUILDINGS) {
-    if (b.house || b.shop || ['board', 'mempi', 'statue', 'flood', 'ksrcanopy', 'flyover'].includes(b.spr)) continue;
-    let along, d;
-    if (seg.line === 'steam') { along = b.x; d = Math.abs(b.y - RAIL_Y); }
-    else { const p = lineProject(B_LINES[seg.line], b.x, b.y); along = p.s; d = p.d; }
-    if (d < 560) out.push({ img: b.img, along, d });
-  }
-  seg.scenery = out.sort((a, b) => b.d - a.d);
-  return seg.scenery;
 }
 
 // ---------------------------------------------------------------------------
@@ -1695,115 +1707,234 @@ function sketchFilter(vw, vh, ox, oy) {
   ctx.putImageData(img, 0, 0);
 }
 
-// The view out of the window on a ride.
-function drawRide(vw, vh) {
-  const R = BL.ride, seg = R.segs[R.seg];
-  const steam = R.kind === 'steam';
-  const dir = Math.sign(seg.b - seg.a) || 1;
-  const horizon = Math.round(vh * 0.66);
+// ---------------------------------------------------------------------------
+// Rides: what you see. Two views (V switches): from a seat inside the coach,
+// looking out of the windows, or from outside, watching the train go by.
+// Either way the real buildings and trees along the route pass by, nearer
+// ones faster, and stations appear with their platforms and name boards.
+// ---------------------------------------------------------------------------
+function rideTrack(seg) { return seg.line === 'steam' ? null : B_LINES[seg.line]; }
+
+// Buildings and trees near the line, with how far along it they are and how far from it.
+function rideItems(seg) {
+  const key = seg.line;
+  BL.rideCache = BL.rideCache || {};
+  if (BL.rideCache[key]) return BL.rideCache[key];
+  const L = rideTrack(seg), out = [];
+  for (const st of BL.statics) {
+    if (st.lamp || (st.kind === 'bld' && ['board', 'mempi', 'statue', 'flood', 'ksrcanopy', 'flyover'].includes(st.b.spr))) continue;
+    const cx = st.x + (st.img.fw || st.w) / 2;
+    let along, d;
+    if (!L) { along = cx; d = Math.abs(st.base - RAIL_Y); }
+    else { const p = lineProject(L, cx, st.base); along = p.s; d = p.d; }
+    if (d < 460 && d > 18) out.push({ img: st.img, along, d, tree: !!st.tree });
+  }
+  out.sort((a, b) => b.d - a.d);
+  return (BL.rideCache[key] = out);
+}
+
+// Stations along a line as positions along it.
+function rideStops(seg) {
+  if (seg.line === 'steam') return B_STEAM_STOPS.map(s => ({ along: s.x, name: s.name }));
+  return B_LINES[seg.line].stations.map(st => ({ along: st.s, name: st.name }));
+}
+
+// Sky, hills or skyline, real buildings and trees, then the track or platform.
+// `y0`..`y1` is the band of screen the scene fills; returns name boards for the UI.
+function drawRideScene(vw, vh, horizon, nearY, s, dir, seg, steam) {
   const day = bDaylight();
-  const top = lerpRgb([126, 178, 222], [32, 36, 70], day.dark / 0.7), bot = lerpRgb([214, 234, 242], [92, 70, 110], day.dark / 0.7);
+  const wrap = (v, m) => ((v % m) + m) % m;
+  const top = lerpRgb([110, 168, 220], [28, 32, 64], day.dark / 0.7), bot = lerpRgb([214, 234, 242], [92, 70, 110], day.dark / 0.7);
   for (let y = 0; y < horizon; y++) {
     const v = (y / horizon) * 7;
     const i = Math.floor(v) + ((v % 1) > dither(0, y) ? 1 : 0);
     ctx.fillStyle = rgbStr(lerpRgb(top, bot, Math.min(1, i / 7)));
     ctx.fillRect(0, y, vw, 1);
   }
-  const s = R.s;
-  const wrap = (v, m) => ((v % m) + m) % m;
   ctx.fillStyle = 'rgba(255,255,255,0.85)';
-  for (let i = 0; i < 8; i++) pixEllipse(ctx, wrap(i * 97 - s * 0.05 * dir, vw + 80) - 40, 14 + (i * 13) % 30, 14, 4);
-  const far = (k, col, hmin, hmax, wmin, step) => {
-    const base = Math.floor((s * k * dir) / step);
-    for (let j = -2; j < vw / step + 3; j++) {
-      const id = base + j;
-      const x = Math.round(j * step - wrap(s * k * dir, step));
-      const h = hmin + slotRand(id, k * 10) * (hmax - hmin), w = wmin + slotRand(id, 3) * 16;
-      ctx.fillStyle = col; ctx.fillRect(x, horizon - h, w, h);
-      ctx.fillStyle = shade(col, -0.25); ctx.fillRect(x + 2, horizon - h - 4, 5, 4);
-      ctx.fillStyle = day.dark > 0.3 ? '#ffd98a' : shade(col, 0.15);
-      for (let wy = horizon - h + 4; wy < horizon - 4; wy += 6) for (let wx = x + 2; wx < x + w - 2; wx += 5) if (slotRand(id + wx, wy) < 0.55) ctx.fillRect(wx, wy, 2, 2);
-    }
-  };
-  // West of the Sarayu the skyline gives way to the Mempi hills.
+  for (let i = 0; i < 8; i++) pixEllipse(ctx, wrap(i * 97 - s * 0.04 * dir, vw + 80) - 40, Math.round(horizon * (0.15 + (i * 13 % 40) / 100)), 14, 4);
   const inTown = !steam || s > 840;
-  if (steam) {
-    ctx.fillStyle = day.dark > 0.3 ? '#2f3a3a' : '#7f9a7a';
-    for (let x = 0; x < vw; x += 2) { const q = x + s * 0.1 * dir; const hh = 26 + Math.sin(q * 0.02) * 10 + Math.sin(q * 0.05) * 5; ctx.fillRect(x, horizon - hh, 2, hh); }
+  // Far: Mempi hills for the steam train, a hazy skyline of apartment blocks in town.
+  if (!inTown || steam) {
+    ctx.fillStyle = day.dark > 0.3 ? '#2f3a3a' : '#87a084';
+    for (let x = 0; x < vw; x += 2) { const q = x + s * 0.08 * dir; const hh = 24 + Math.sin(q * 0.02) * 10 + Math.sin(q * 0.05) * 5; ctx.fillRect(x, horizon - hh, 2, hh); }
   }
-  if (inTown) far(0.12, day.dark > 0.3 ? '#3a3f5a' : '#a6b4c4', 20, 46, 14, 26);
-  for (const it of rideScenery(seg)) {
-    const sc = clamp(0.62 - it.d / 1100, 0.18, 0.62);
-    const x = vw / 2 + (it.along - s) * dir * sc * 0.9;
-    const w = it.img.width * sc, h = it.img.height * sc;
-    if (x + w / 2 < -10 || x - w / 2 > vw + 10) continue;
-    ctx.drawImage(it.img, Math.round(x - w / 2), Math.round(horizon - h + 2), Math.round(w), Math.round(h));
-  }
-  if (inTown) far(0.45, day.dark > 0.3 ? '#2b2f44' : '#7d8a9a', 10, 26, 18, 34);
-  ctx.fillStyle = steam && !inTown ? '#8fbf4a' : '#5d8a3e'; ctx.fillRect(0, horizon, vw, vh - horizon);
-  const treeStep = 46, tb = Math.floor(s * 1.1 * dir / treeStep);
-  for (let j = -2; j < vw / treeStep + 3; j++) {
-    const id = tb + j, x = Math.round(j * treeStep - wrap(s * 1.1 * dir, treeStep));
-    const r0 = slotRand(id, 9);
-    const kind = steam && !inTown ? (r0 < 0.6 ? 'coconut' : 'rain') : r0 < 0.35 ? 'pink' : r0 < 0.7 ? 'rain' : 'coconut';
-    const img = BL.treeSpr[kind][id & 1 ? 1 : 0];
-    ctx.drawImage(img, x, horizon + 20 - img.height);
-  }
-  const deckY = horizon + 18;
-  if (steam) {
-    ctx.fillStyle = '#6b4a32'; ctx.fillRect(0, deckY + 2, vw, 6);
-    ctx.fillStyle = '#9aa0a6'; ctx.fillRect(0, deckY + 2, vw, 1);
-    for (let x = -wrap(s * 1.3 * dir, 8); x < vw; x += 8) { ctx.fillStyle = '#4a3420'; ctx.fillRect(Math.round(x), deckY + 4, 3, 4); }
-    // The Sarayu passes underneath the bridge.
-    const bx = vw / 2 + (800 - s) * dir * 1.3;
-    if (bx > -120 && bx < vw + 120) {
-      ctx.fillStyle = '#4a8db5'; ctx.fillRect(Math.round(bx - 60), deckY + 8, 120, vh - deckY - 8);
-      ctx.fillStyle = '#9a9182'; for (let x = -60; x < 60; x += 20) ctx.fillRect(Math.round(bx + x), deckY + 8, 4, vh - deckY - 8);
-    }
-  } else {
-    ctx.fillStyle = '#4a4740'; ctx.fillRect(0, deckY, vw, 9);
-    ctx.fillStyle = '#c9c2b6'; ctx.fillRect(0, deckY + 1, vw, 5);
-    for (let j = -1; j < vw / 70 + 2; j++) {
-      const x = Math.round(j * 70 - wrap(s * 1.3 * dir, 70));
-      ctx.fillStyle = '#6e6a62'; ctx.fillRect(x, deckY + 9, 8, vh - deckY - 9);
-      ctx.fillStyle = '#a39b8a'; ctx.fillRect(x, deckY + 9, 2, vh - deckY - 9);
+  if (inTown) {
+    const step = 26, k = 0.1, base = Math.floor(s * k * dir / step);
+    for (let j = -2; j < vw / step + 3; j++) {
+      const id = base + j, x = Math.round(j * step - wrap(s * k * dir, step));
+      const h = 18 + slotRand(id, 1) * 30, w = 14 + slotRand(id, 3) * 14;
+      ctx.fillStyle = day.dark > 0.3 ? '#3a3f5a' : '#b4c0cc'; ctx.fillRect(x, horizon - h, w, h);
+      ctx.fillStyle = day.dark > 0.3 ? '#ffd98a' : '#c9d3dc';
+      for (let wy = horizon - h + 3; wy < horizon - 3; wy += 5) for (let wx = x + 2; wx < x + w - 2; wx += 4) if (slotRand(id + wx, wy) < 0.5) ctx.fillRect(wx, wy, 2, 2);
     }
   }
+  // Ground between the horizon and the track.
+  const g0 = lerpRgb([120, 160, 84], [40, 56, 40], day.dark / 0.7);
+  ctx.fillStyle = rgbStr(g0); ctx.fillRect(0, horizon, vw, nearY - horizon);
+  // The real city along the route: far things small and slow, near things big and fast.
+  for (const it of rideItems(seg)) {
+    const p = clamp(1 - it.d / 460, 0.08, 1);
+    const sc = 0.22 + 0.78 * p;
+    const x = vw / 2 + (it.along - s) * dir * (0.25 + 0.95 * p);
+    const w = it.img.width * sc;
+    if (x + w < -20 || x - w > vw + 20) continue;
+    const by = horizon + (nearY - horizon) * p * 0.9;
+    const h = it.img.height * sc;
+    ctx.drawImage(it.img, Math.round(x - w / 2), Math.round(by - h), Math.round(w), Math.round(h));
+  }
+  // Stations: a platform with its canopy and a name board, passing at track speed.
+  const boards = [];
+  for (const st of rideStops(seg)) {
+    const x = vw / 2 + (st.along - s) * dir * 1.3;
+    if (x < -260 || x > vw + 260) continue;
+    const pw = 240;
+    if (steam) {
+      ctx.fillStyle = '#bdb5a5'; ctx.fillRect(Math.round(x - pw / 2), nearY - 8, pw, 8);
+      ctx.fillStyle = '#e8d36a'; ctx.fillRect(Math.round(x - pw / 2), nearY - 8, pw, 1);
+      ctx.fillStyle = '#b5553a'; ctx.fillRect(Math.round(x - pw / 2), Math.round(horizon * 0.62), pw, 7);
+      for (let px = -pw / 2 + 6; px < pw / 2; px += 40) { ctx.fillStyle = '#3a5a4a'; ctx.fillRect(Math.round(x + px), Math.round(horizon * 0.62) + 7, 2, nearY - 8 - Math.round(horizon * 0.62) - 7); }
+      ctx.fillStyle = '#1d1816'; ctx.fillRect(Math.round(x - 26), Math.round(horizon * 0.7), 52, 13); ctx.fillStyle = '#f2cf3e'; ctx.fillRect(Math.round(x - 25), Math.round(horizon * 0.7) + 1, 50, 11);
+      boards.push({ x, y: horizon * 0.7 + 6.5, text: st.name.toUpperCase(), color: '#1d1816', bg: null });
+    } else {
+      const L = B_LINES[seg.line];
+      ctx.fillStyle = '#d9d2c4'; ctx.fillRect(Math.round(x - pw / 2), nearY - 10, pw, 10);
+      ctx.fillStyle = '#e8d36a'; ctx.fillRect(Math.round(x - pw / 2), nearY - 10, pw, 2);
+      ctx.fillStyle = '#f4f1ea'; ctx.fillRect(Math.round(x - pw / 2 - 6), Math.round(horizon * 0.5), pw + 12, 8);
+      ctx.fillStyle = L.col; ctx.fillRect(Math.round(x - pw / 2 - 6), Math.round(horizon * 0.5) + 8, pw + 12, 2);
+      for (let px = -pw / 2; px <= pw / 2; px += 48) { ctx.fillStyle = '#8a8f96'; ctx.fillRect(Math.round(x + px), Math.round(horizon * 0.5) + 10, 3, nearY - 10 - Math.round(horizon * 0.5) - 10); }
+      ctx.fillStyle = '#1d1816'; ctx.fillRect(Math.round(x - 44), Math.round(horizon * 0.66), 88, 14); ctx.fillStyle = L.col; ctx.fillRect(Math.round(x - 43), Math.round(horizon * 0.66) + 1, 86, 12);
+      boards.push({ x, y: horizon * 0.66 + 7, text: st.name, color: '#ffffff', bg: null });
+    }
+  }
+  return boards;
+}
+
+function drawRide(vw, vh) {
+  const R = BL.ride, seg = R.segs[R.seg], steam = R.kind === 'steam';
+  const dir = Math.sign(seg.b - seg.a) || 1;
   const rock = R.speed > 20 ? (Math.floor(BL.t * 12) % 2) : 0;
-  if (steam) {
-    const cx = Math.round(vw / 2);
-    drawSteamTrain(cx, deckY + 2 - rock, 1, BL.t * 40);
-    ctx.drawImage(SPR.kitten.idle.img[0], 0, 0, 24, 14, cx - 4, deckY - 21 - rock, 12, 7);
-    if (Math.random() < 0.4) R.smoke = (R.smoke || []).concat([{ x: cx + 95, y: deckY - 30, r: 3, life: 1.4 }]);
-    for (const p of R.smoke || []) { p.life -= 1 / 60; p.x -= 1 + R.speed * 0.01; p.y -= 0.3; p.r += 0.05; }
-    R.smoke = (R.smoke || []).filter(p => p.life > 0);
-    for (const p of R.smoke) { ctx.globalAlpha = p.life / 1.4 * 0.75; ctx.fillStyle = '#e9e4dc'; pixDisc(ctx, p.x, p.y, Math.round(p.r)); }
-    ctx.globalAlpha = 1;
-  } else {
-    const L = B_LINES[seg.line];
-    const tw = 52, ty = deckY - 20, tx0 = Math.round(vw / 2 - tw * 1.5);
-    for (let i = 0; i < 3; i++) {
-      const x = tx0 + i * tw;
-      ctx.fillStyle = '#2b2220'; ctx.fillRect(x, ty - rock, tw - 1, 20);
-      ctx.fillStyle = '#eceaf0'; ctx.fillRect(x + 1, ty + 1 - rock, tw - 3, 18);
-      ctx.fillStyle = L.col; ctx.fillRect(x + 1, ty + 12 - rock, tw - 3, 5); ctx.fillRect(x + 1, ty + 1 - rock, tw - 3, 1);
-      for (let wx = 4; wx < tw - 8; wx += 9) {
-        ctx.fillStyle = '#3a4a58'; ctx.fillRect(x + wx, ty + 4 - rock, 7, 6);
-        if (slotRand(i * 10 + wx, 1) < 0.5) { ctx.fillStyle = '#2b2220'; ctx.fillRect(x + wx + 2, ty + 6 - rock, 3, 4); }
+  R.layout = null;
+  ctx.fillStyle = '#5d8a3e';
+  ctx.fillRect(0, 0, vw, vh);
+  if (R.view === 'outside') {
+    const horizon = Math.round(vh * 0.62), deckY = horizon + 30;
+    R.boards = drawRideScene(vw, vh, horizon, deckY - 20, R.s, dir, seg, steam);
+    ctx.fillStyle = '#5d8a3e'; ctx.fillRect(0, deckY + 9, vw, vh - deckY - 9);
+    if (steam) {
+      ctx.fillStyle = '#6b4a32'; ctx.fillRect(0, deckY + 2, vw, 6);
+      ctx.fillStyle = '#9aa0a6'; ctx.fillRect(0, deckY + 2, vw, 1);
+      const bx = vw / 2 + (800 - R.s) * dir * 1.3;
+      if (bx > -120 && bx < vw + 120) { ctx.fillStyle = '#4a8db5'; ctx.fillRect(Math.round(bx - 60), deckY + 8, 120, vh - deckY - 8); }
+      const cx = Math.round(vw / 2);
+      drawSteamTrain(cx, deckY + 2 - rock, 1, BL.t * 40);
+      ctx.drawImage(SPR.kitten.idle.img[0], 0, 0, 24, 14, cx - 4, deckY - 21 - rock, 12, 7);
+    } else {
+      const L = B_LINES[seg.line];
+      ctx.fillStyle = '#4a4740'; ctx.fillRect(0, deckY, vw, 9);
+      ctx.fillStyle = '#c9c2b6'; ctx.fillRect(0, deckY + 1, vw, 5);
+      for (let j = -1; j < vw / 70 + 2; j++) {
+        const x = Math.round(j * 70 - (((R.s * 1.3 * dir) % 70) + 70) % 70);
+        ctx.fillStyle = '#6e6a62'; ctx.fillRect(x, deckY + 9, 8, vh - deckY - 9);
       }
-      ctx.fillStyle = '#9a9aa6'; ctx.fillRect(x + tw / 2 - 3, ty + 3 - rock, 6, 13);
-      ctx.fillStyle = '#2b2220'; ctx.fillRect(x + 5, ty + 19, 8, 2); ctx.fillRect(x + tw - 14, ty + 19, 8, 2);
+      const tw = 56, ty = deckY - 21, tx0 = Math.round(vw / 2 - tw * 1.5);
+      for (let i = 0; i < 3; i++) {
+        const x = tx0 + i * tw;
+        ctx.fillStyle = '#2b2220'; ctx.fillRect(x, ty - rock, tw - 1, 21);
+        ctx.fillStyle = '#eceaf0'; ctx.fillRect(x + 1, ty + 1 - rock, tw - 3, 19);
+        ctx.fillStyle = L.col; ctx.fillRect(x + 1, ty + 13 - rock, tw - 3, 5); ctx.fillRect(x + 1, ty + 1 - rock, tw - 3, 2);
+        for (let wx = 4; wx < tw - 8; wx += 9) { ctx.fillStyle = '#3a4a58'; ctx.fillRect(x + wx, ty + 5 - rock, 7, 6); }
+        ctx.fillStyle = '#9a9aa6'; ctx.fillRect(x + tw / 2 - 3, ty + 4 - rock, 6, 13);
+      }
+      ctx.drawImage(SPR.kitten.idle.img[0], 0, 0, 24, 14, tx0 + tw + 12, ty + 3 - rock, 12, 7);
     }
-    ctx.drawImage(SPR.kitten.idle.img[0], 0, 0, 24, 14, tx0 + tw + 12, ty + 2 - rock, 12, 7);
-    ctx.fillStyle = '#2b2220'; ctx.fillRect(tx0 + tw * 3 - 1, ty + 3 - rock, 3, 14);
-    ctx.fillStyle = '#fff3c8'; ctx.fillRect(tx0 + tw * 3, ty + 13 - rock, 1, 2);
-  }
-  if (R.speed > 40) {
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    for (let i = 0; i < 6; i++) ctx.fillRect(Math.round(wrap(i * 71 - BL.t * 400, vw)), deckY + 30 + (i * 7) % Math.max(1, vh - deckY - 32), 18, 1);
+  } else {
+    drawCoach(vw, vh, R, seg, steam, dir, rock);
   }
   drawNight(vw, vh, false);
   if (BL.view === 'sketch') sketchFilter(vw, vh, 0, 0);
+}
+
+// Inside the coach: the city through the windows, poles, swinging handles,
+// seats, a passenger or two, and Ser Biscuit with paws on the window sill.
+function drawCoach(vw, vh, R, seg, steam, dir, rock) {
+  const wy0 = Math.round(vh * 0.24), wy1 = Math.round(vh * 0.66);
+  const horizon = Math.round(wy0 + (wy1 - wy0) * 0.62);
+  R.boards = drawRideScene(vw, vh, horizon, wy1 + 2, R.s, dir, seg, steam);
+  // The parapet of the viaduct (or the rail-side fence) rushing past just below the window.
+  const wrap = (v, m) => ((v % m) + m) % m;
+  if (steam) {
+    ctx.fillStyle = '#8fbf4a'; ctx.fillRect(0, wy1 - 10, vw, 12);
+    for (let x = -wrap(R.s * 2 * dir, 30); x < vw; x += 30) { ctx.fillStyle = '#6b4a32'; ctx.fillRect(Math.round(x), wy1 - 16, 3, 16); }
+  } else {
+    ctx.fillStyle = '#b8b2a6'; ctx.fillRect(0, wy1 - 9, vw, 11);
+    ctx.fillStyle = '#d9d2c4'; ctx.fillRect(0, wy1 - 9, vw, 2);
+    for (let x = -wrap(R.s * 2.2 * dir, 40); x < vw; x += 40) { ctx.fillStyle = '#8a857a'; ctx.fillRect(Math.round(x), wy1 - 8, 1, 10); }
+  }
+  // Coach walls around two windows (with rounded corners), plus the line stripe.
+  const L = steam ? null : B_LINES[seg.line];
+  const wall = steam ? '#7a4a2a' : '#d6d9df', wall2 = steam ? '#5a341c' : '#b9bdc6', accent = steam ? '#c9a55a' : L.col;
+  const wins = [[Math.round(vw * 0.06), Math.round(vw * 0.45)], [Math.round(vw * 0.55), Math.round(vw * 0.94)]];
+  const oy = rock;
+  ctx.fillStyle = wall;
+  ctx.fillRect(0, 0, vw, wy0 + oy);
+  ctx.fillRect(0, wy1 + oy, vw, vh - wy1);
+  ctx.fillRect(0, 0, wins[0][0], vh);
+  ctx.fillRect(wins[0][1], 0, wins[1][0] - wins[0][1], vh);
+  ctx.fillRect(wins[1][1], 0, vw - wins[1][1], vh);
+  for (const [a, b] of wins) {
+    for (let k = 0; k < 5; k++) { const cut = [5, 3, 2, 1, 1][k]; ctx.fillRect(a, wy0 + oy + k, cut, 1); ctx.fillRect(b - cut, wy0 + oy + k, cut, 1); ctx.fillRect(a, wy1 + oy - 1 - k, cut, 1); ctx.fillRect(b - cut, wy1 + oy - 1 - k, cut, 1); }
+    ctx.fillStyle = '#4a4f58';
+    ctx.fillRect(a - 2, wy0 + oy - 2, b - a + 4, 2); ctx.fillRect(a - 2, wy1 + oy, b - a + 4, 3); ctx.fillRect(a - 2, wy0 + oy, 2, wy1 - wy0); ctx.fillRect(b, wy0 + oy, 2, wy1 - wy0);
+    ctx.fillStyle = 'rgba(255,255,255,0.10)'; ctx.fillRect(a + 6, wy0 + oy + 3, 10, wy1 - wy0 - 8);
+    if (steam) { ctx.fillStyle = '#3a2618'; for (let x = a + 10; x < b - 4; x += 12) ctx.fillRect(x, wy0 + oy, 2, wy1 - wy0); }
+    ctx.fillStyle = wall;
+  }
+  // Ceiling with lights, the line stripe, a route map over the windows.
+  ctx.fillStyle = steam ? '#4a2a14' : '#eef0f3'; ctx.fillRect(0, 0, vw, Math.round(vh * 0.05));
+  if (!steam) { ctx.fillStyle = '#ffffff'; for (let x = 20; x < vw; x += 90) ctx.fillRect(x, 2, 50, 3); }
+  ctx.fillStyle = accent; ctx.fillRect(0, wy0 + oy - 7, vw, 3);
+  const strip = { x0: wins[0][0] + 6, x1: wins[1][1] - 6, y: Math.round(vh * 0.19) };
+  if (!steam) {
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(strip.x0 - 6, strip.y - 8, strip.x1 - strip.x0 + 12, 17);
+    ctx.fillStyle = L.col; ctx.fillRect(strip.x0, strip.y, strip.x1 - strip.x0, 3);
+  }
+  // A grab pole between the windows and handles hanging from the rail.
+  const poleX = Math.round((wins[0][1] + wins[1][0]) / 2);
+  ctx.fillStyle = '#8a9099'; ctx.fillRect(poleX - 2, Math.round(vh * 0.05), 5, vh);
+  ctx.fillStyle = '#d9dee4'; ctx.fillRect(poleX - 1, Math.round(vh * 0.05), 1, vh);
+  ctx.fillStyle = '#8a9099'; ctx.fillRect(0, wy0 + oy - 3, vw, 2);
+  const sway = (R.speed > 2 ? Math.sin(BL.t * 3) * 0.25 : 0) + (R.t < 1 ? -0.25 * (1 - R.t) : 0);
+  for (let x = 30; x < vw - 20; x += 44) {
+    const a = sway + Math.sin(x) * 0.05;
+    const len = 18;
+    const hx = Math.round(x + Math.sin(a) * len), hy = Math.round(wy0 + oy - 2 + Math.cos(a) * len);
+    pixLine(ctx, [x, wy0 + oy - 2], [hx, hy], '#5d6370');
+    ctx.fillStyle = steam ? '#c9a55a' : '#f0c419';
+    ctx.fillRect(hx - 3, hy, 7, 2); ctx.fillRect(hx - 3, hy + 2, 2, 5); ctx.fillRect(hx + 2, hy + 2, 2, 5); ctx.fillRect(hx - 3, hy + 7, 7, 2);
+  }
+  // Seats under the windows.
+  const seatY = Math.round(vh * 0.74);
+  for (const [a, b] of wins) {
+    ctx.fillStyle = '#2b2220'; ctx.fillRect(a - 2, seatY - 2, b - a + 4, vh * 0.16 + 4);
+    ctx.fillStyle = steam ? '#6b4a32' : shade(accent, -0.15); ctx.fillRect(a, seatY, b - a, Math.round(vh * 0.16));
+    ctx.fillStyle = steam ? '#8a6a4a' : accent; for (let x = a; x < b - 6; x += 26) ctx.fillRect(x + 2, seatY + 2, Math.min(22, b - x - 4), Math.round(vh * 0.16) - 4);
+  }
+  ctx.fillStyle = steam ? '#3a2618' : '#9aa0a8'; ctx.fillRect(0, Math.round(vh * 0.92), vw, vh);
+  // Ser Biscuit at the left window, paws on the sill; a passenger reading.
+  const kx = wins[0][0] + 50, ky = wy1 + oy + 26;
+  ctx.drawImage(SPR.kitten.idle.img[0], kx - 12, ky - 31);
+  ctx.save();
+  ctx.translate(wins[1][1] - 70, seatY + 6);
+  ctx.scale(2, 2);
+  drawPerson(0, 0, { skin: '#c48a5c', hair: '#2b2220', top: '#5b8ee0', bottom: '#2b2a33', facing: -1 }, true);
+  ctx.fillStyle = '#f4f1ea'; ctx.fillRect(-6, -9, 5, 4);
+  ctx.restore();
+  // The LED board over the pole.
+  const led = { x: poleX - 60, y: Math.round(vh * 0.104), w: 120, h: 12 };
+  ctx.fillStyle = '#1d1816'; ctx.fillRect(led.x - 1, led.y - 1, led.w + 2, led.h + 2);
+  ctx.fillStyle = '#2b1a10'; ctx.fillRect(led.x, led.y, led.w, led.h);
+  R.layout = { led, strip, stops: steam ? [] : rideStops(seg), seg };
 }
 
 // ---------------------------------------------------------------------------
@@ -1851,7 +1982,10 @@ function cityUI() {
     for (const s of k.statics) {
       if (s.kind !== 'bld' || !s.b.signs) continue;
       if (s.x + s.w < c.x || s.x > c.x + c.w || s.y > c.y + c.h || s.base < c.y) continue;
-      for (const g of s.b.signs) cut(g.text, sx(s.x + g.x), sy(s.y + g.y - g.size / 2), { size: g.size / z, color: g.color, align: 'center', outline: g.outline === null ? null : '#1d1816', stroke: g.size * 0.24 / z });
+      for (const g of s.b.signs) {
+        const a = g.anchor ? s.img.anchors[g.anchor] : { x: g.x, y: g.y + (s.img.oy || 0) };
+        cut(g.text, sx(s.x + a.x), sy(s.y + a.y - g.size / 2), { size: g.size / z, color: g.color, align: 'center', outline: g.outline === null ? null : '#1d1816', stroke: g.size * 0.24 / z });
+      }
     }
   } else {
     for (const pc of B_POSTCARDS) {
@@ -1859,12 +1993,14 @@ function cityUI() {
       cut(pc.name, sx(pc.x), sy(pc.y) - 12, { size: 4.6, color: SAVE.city.stamps.includes(pc.id) ? '#ffd25e' : '#ffffff', align: 'center' });
     }
   }
+  const labelled = new Set();
   for (const L of Object.values(B_LINES)) {
     for (const st of L.stations) {
-      if (L === B_LINES.green && st.id === B_INTERCHANGE) continue;
+      if (labelled.has(st.id)) continue;
+      labelled.add(st.id);
       const axis = linePoint(L, st.s).axis;
       const x = st.x, y = axis === 'h' ? st.y - DECK - 40 : st.y - DECK - 55;
-      if (bOnScreen(x, y, 0)) cut(`${st.name}${st.id === B_INTERCHANGE ? ' (both lines)' : ''}`, sx(x), sy(y) - 5, { size: z > 2 ? 3.6 : 4.2, color: L.light, align: 'center' });
+      if (bOnScreen(x, y, 0)) cut(`${st.name}${B_INTERCHANGES[st.id] ? ' (change here)' : ''}`, sx(x), sy(y) - 5, { size: z > 2 ? 3.6 : 4.2, color: L.light, align: 'center' });
     }
   }
 
@@ -2073,21 +2209,21 @@ function drawCityMap() {
 function rideUI() {
   const R = BL.ride;
   if (R.phase === 'pick') {
-    const w = Math.min(210, W - 12), h = Math.min(126, H - 8), x = W / 2 - w / 2, y = H / 2 - h / 2;
+    const w = Math.min(250, W - 8), h = Math.min(132, H - 6), x = W / 2 - w / 2, y = H / 2 - h / 2;
     ubox(x, y, w, h, 'rgba(29,24,22,0.95)');
     cut('NAMMA METRO', W / 2, y + 4, { size: 7, color: '#ffd25e', align: 'center', font: TITLE_FONT, weight: 400, stroke: 2.4 });
     cut(`From ${B_STATIONS[R.from].name}. Where to?`, W / 2, y + 13, { size: 5, color: '#d8d0c2', align: 'center' });
     R.hits = [];
     B_COLS.forEach((lid, ci) => {
-      const L = B_LINES[lid], cx = x + w * (ci ? 0.56 : 0.1), y0 = y + 29;
-      const gap = (h - 42) / 7;
+      const L = B_LINES[lid], cx = x + 7 + ci * (w - 10) / 3, y0 = y + 29;
+      const gap = (h - 42) / 9;
       cut(L.name, cx, y0 - 8, { size: 5, color: L.light });
       urect(cx - 0.8, y0, 1.6, gap * (L.stations.length - 1), L.col);
       L.stations.forEach((s, ri) => {
         const sy = y0 + ri * gap, here = s.id === R.from, sel = R.sel.col === ci && R.sel.row === ri;
         urect(cx - 2.5, sy - 2.5, 5, 5, INK);
-        urect(cx - 1.8, sy - 1.8, 3.6, 3.6, here ? '#ff8a7a' : s.id === B_INTERCHANGE ? '#ffd25e' : '#ffffff');
-        cut(here ? `${s.name} (here)` : s.name, cx + 6, sy - 3, { size: 4.8, color: sel ? '#ffd25e' : here ? '#ff8a7a' : '#ffffff' });
+        urect(cx - 1.8, sy - 1.8, 3.6, 3.6, here ? '#ff8a7a' : B_INTERCHANGES[s.id] ? '#ffd25e' : '#ffffff');
+        cut(here ? `${s.name} (here)` : s.name, cx + 5, sy - 2.6, { size: 4.3, color: sel ? '#ffd25e' : here ? '#ff8a7a' : '#ffffff' });
         if (sel) drawArrow(cx - 7, sy, 0);
         R.hits.push({ x: cx + 22, y: sy, sel: { col: ci, row: ri } });
       });
@@ -2103,11 +2239,43 @@ function rideUI() {
     return;
   }
   const seg = R.segs[R.seg];
-  const col = R.kind === 'steam' ? '#8a2f2a' : B_LINES[seg.line].col, light = R.kind === 'steam' ? '#f2c94c' : B_LINES[seg.line].light;
+  const steam = R.kind === 'steam';
+  const col = steam ? '#8a2f2a' : B_LINES[seg.line].col, light = steam ? '#f2c94c' : B_LINES[seg.line].light;
+  const z = canvas.width / W;
+  // Station name boards on the platforms outside.
+  for (const b of R.boards || []) if (b.x > -40 && b.x < canvas.width + 40) cut(b.text, b.x / z, b.y / z - 2.6, { size: 5, color: b.color, align: 'center', outline: null });
+  const Lay = R.layout;
+  if (Lay) {
+    // LED board: the next station, scrolling.
+    const msg = R.t < 0.4 || R.speed < 1 && R.t > 1 ? `${seg.toName}` : `Next station: ${seg.toName}   ${steam ? 'Malgudi Express' : B_LINES[seg.line].name}`;
+    const lx = Lay.led.x / z, ly = Lay.led.y / z, lw = Lay.led.w / z;
+    uctx.save();
+    uctx.beginPath(); uctx.rect(lx, ly, lw, Lay.led.h / z); uctx.clip();
+    const tw = uwidth(msg, 4.6);
+    const tx = tw < lw - 4 ? lx + (lw - tw) / 2 : lx + lw - ((BL.t * 22) % (tw + lw));
+    cut(msg, tx, ly + 0.6, { size: 4.6, color: '#ff9a3a', outline: null });
+    uctx.restore();
+    // Route strip over the windows, with where we are.
+    if (Lay.stops.length) {
+      const all = Lay.stops, a0 = all[0].along, a1 = all[all.length - 1].along;
+      const X = v => (Lay.strip.x0 + (v - a0) / (a1 - a0) * (Lay.strip.x1 - Lay.strip.x0)) / z;
+      const y = Lay.strip.y / z;
+      all.forEach((st, i) => {
+        const x = X(st.along);
+        urect(x - 1.2, y - 0.6, 2.4, 2.4, '#1d1816'); urect(x - 0.8, y - 0.2, 1.6, 1.6, '#ffffff');
+        if (i % 2 === 0 || all.length < 8) cut(st.name, x, y + (i % 2 ? 2.2 : -4.6), { size: 2.8, color: '#3a3530', align: 'center', outline: null });
+      });
+      const mx = X(R.s);
+      urect(mx - 1.5, y - 1, 3, 3, Math.sin(BL.t * 8) > 0 ? '#ff5a5a' : '#ffd25e');
+    }
+  }
   band(0, 14, 0.55);
   urect(0, 13, W, 1, col);
-  cut(`${R.kind === 'steam' ? 'Malgudi Express' : B_LINES[seg.line].name}  >  ${seg.toName}`, 6, 3.5, { size: 6, color: light });
+  cut(`${steam ? 'Malgudi Express' : B_LINES[seg.line].name}  >  ${seg.toName}`, 6, 3.5, { size: 6, color: light });
   cut(fmtClock(BL.clock), W - 6, 3.5, { size: 6, color: '#f6e9c8', align: 'right' });
+  const cw = uwidth(fmtClock(BL.clock), 6) + 14;
+  if (input.mode === 'keys') keyHint('V', R.view === 'window' ? 'Outside view' : 'Window view', W - 6 - cw, 4, 'right');
+  else cut(input.mode === 'pad' ? 'LB: change view' : 'VIEW: change view', W - 6 - cw, 4.5, { size: 4.4, color: '#d8d0c2', align: 'right' });
   if (R.caption) {
     const a = Math.min(1, R.caption.t * 3);
     band(H - 26, 22, 0.55 * a);

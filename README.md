@@ -26,9 +26,12 @@ controls appear automatically), and supports gamepads.
   Bugle Rock, Vidyarthi Bhavan), Lalbagh, Jayanagar's pink tabebuia
   "cherry blossom" avenues, Koramangala and Silk Board. R.K. Narayan's
   Malgudi lies across the river Sarayu, linked to KSR by the steam-hauled
-  Malgudi Express. Collect a postcard at each landmark, ride the Purple and
-  Green lines of Namma Metro (change at Majestic), talk to people, and watch
-  day turn to night. The minimap and city map (M) let you set a destination;
+  Malgudi Express. Collect a postcard at each landmark, ride the Purple,
+  Green and Yellow lines of Namma Metro (change at Majestic or R.V. Road),
+  watching the real streets go by from a window seat or from outside, talk to
+  people, and watch day turn to night. Buildings are drawn in 3D: roofs, side
+  walls and, for Vidhana Soudha, a hand-built model with its domes, portico
+  and lion capital. The minimap and city map (M) let you set a destination;
   V switches between street, drone, Malgudi sketch and close-up views.
 
 Fish collected in any mode buy capes, bows and armor in the shop.

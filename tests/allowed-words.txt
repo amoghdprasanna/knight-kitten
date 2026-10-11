@@ -98,7 +98,7 @@ sala
 namde
 mundina
 nildana
-itta
+
 baagilugalu
 edagade
 tereyuttave
@@ -160,3 +160,10 @@ uber
 darshini
 shockwave
 mrrow
+magadi
+srirampura
+ragigudda
+jayadeva
+bommanahalli
+hongasandra
+btm

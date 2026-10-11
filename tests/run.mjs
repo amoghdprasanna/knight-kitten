@@ -381,6 +381,9 @@ async function suiteShots(browser) {
     ['metro-picker', [1528, 1430, 'street', 'pick']],
     ['metro-ride', [1528, 1430, 'street', 'ride']],
     ['steam-ride', [330, 1046, 'street', 'steam']],
+    ['metro-outside', [1528, 1430, 'street', 'ride-outside']],
+    ['yellow-line', [2078, 3470, 'street', 'ride-yellow']],
+    ['vidhana-full', [2640, 1500, 'drone']],
     ['title', null],
   ];
   const { page, errors } = await openGame(browser);
@@ -394,7 +397,13 @@ async function suiteShots(browser) {
         BL.banner = BL.card = BL.toast = null; BL.t = 30;
         if (extra === 'map') openCityMap();
         if (extra === 'pick') openRidePicker(B_STATIONS.majestic);
-        if (extra === 'ride') { openRidePicker(B_STATIONS.majestic); BL.ride.sel = { col: 0, row: 4 }; confirmRide(); for (let i = 0; i < 220; i++) cityTick(1 / 60); BL.ride.caption = null; }
+        BL.rideView = extra === 'ride-outside' ? 'outside' : 'window';
+        if (extra && extra.startsWith('ride')) {
+          const yellow = extra === 'ride-yellow';
+          openRidePicker(yellow ? B_STATIONS.rvroad : B_STATIONS.majestic);
+          BL.ride.sel = yellow ? { col: 2, row: 4 } : { col: 0, row: 4 };
+          confirmRide(); for (let i = 0; i < 220; i++) cityTick(1 / 60); BL.ride.caption = null;
+        }
         if (extra === 'steam') { startSteamRide(0); for (let i = 0; i < 200; i++) cityTick(1 / 60); }
       }, sc);
     } else await page.evaluate(() => goToTitle());
