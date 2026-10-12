@@ -188,6 +188,7 @@ const JGROUND = () => H - 24;
 const J_GRAV = 500;
 
 function journeyTick(dt) {
+  J.prevDist = J.dist;
   jt += dt;
   if (input.pressed.pause && (J.state === 'run' || J.state === 'chase')) { pauseGame(); return; }
   J.shake = Math.max(0, J.shake - dt * 18);
@@ -633,7 +634,14 @@ function palMixRgb(key) {
 // Deterministic pseudo-random per world slot, so decor stays put.
 function slotRand(i, salt) { const x = Math.sin(i * 127.1 + salt * 311.7) * 43758.5453; return x - Math.floor(x); }
 
+// Draws with the trail scrolled to between the last two steps, so it glides.
 function journeyDraw() {
+  const real = J.dist;
+  if (J.prevDist !== undefined && Math.abs(real - J.prevDist) < 50) J.dist = rpx(J.prevDist + (real - J.prevDist) * RALPHA);
+  try { journeyDrawAt(); } finally { J.dist = real; }
+}
+
+function journeyDrawAt() {
   const L = curLand();
   const gy = JGROUND();
   const shx = J.shake ? Math.round(rand(-J.shake, J.shake)) : 0;
@@ -663,9 +671,9 @@ function journeyDraw() {
     for (let i = Math.floor((J.dist * 0.15) / 22) - 1; i < (J.dist * 0.15 + W) / 22 + 1; i++) {
       const bx = i * 22 - J.dist * 0.15, bh = 30 + slotRand(i, 1) * 40;
       ctx.fillStyle = far;
-      ctx.fillRect(Math.round(bx), Math.round(gy - 20 - bh), 18, bh + 20);
+      ctx.fillRect(rpx(bx), Math.round(gy - 20 - bh), 18, bh + 20);
       ctx.fillStyle = '#ffe39a';
-      for (let wy = 0; wy < bh - 6; wy += 6) for (let wx = 3; wx < 15; wx += 5) if (slotRand(i * 31 + wy + wx, 2) > 0.55) ctx.fillRect(Math.round(bx + wx), Math.round(gy - 16 - bh + wy), 2, 2);
+      for (let wy = 0; wy < bh - 6; wy += 6) for (let wx = 3; wx < 15; wx += 5) if (slotRand(i * 31 + wy + wx, 2) > 0.55) ctx.fillRect(rpx(bx + wx), Math.round(gy - 16 - bh + wy), 2, 2);
     }
   } else {
     ctx.fillStyle = far;
@@ -686,7 +694,7 @@ function journeyDraw() {
   for (let i = Math.floor(p6 / 46) - 1; i < (p6 + W) / 46 + 2; i++) {
     if (slotRand(i, 3) < 0.35) continue;
     const kind = L.decor[Math.floor(slotRand(i, 4) * L.decor.length)];
-    const x = Math.round(i * 46 + slotRand(i, 5) * 20 - p6);
+    const x = rpx(i * 46 + slotRand(i, 5) * 20 - p6);
     drawDecor(kind, x, gy - 4, i);
   }
 
@@ -698,15 +706,20 @@ function journeyDraw() {
   ctx.fillRect(-4, gy - 4, W + 8, 3);
   ctx.fillStyle = trail;
   ctx.fillRect(-4, gy + 1, W + 8, 9);
-  for (let x = -4; x < W + 4; x++) {
-    const wx = Math.floor(x + J.dist);
+  // Ground texture on whole game pixels, slid by the fraction left over.
+  const base = Math.floor(J.dist);
+  ctx.save();
+  ctx.translate(-(J.dist - base), 0);
+  for (let x = -4; x < W + 6; x++) {
+    const wx = x + base;
     if (dither(wx, 0) > 0.5) { ctx.fillStyle = grass; ctx.fillRect(x, gy, 1, 1); }
     if (dither(wx, 1) > 0.7) { ctx.fillStyle = grassDark; ctx.fillRect(x, gy + 10, 1, 1); }
     if (wx % 37 === 0) { ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fillRect(x, gy + 5, 2, 1); }
     if (wx % 23 === 0) { ctx.fillStyle = grass; ctx.fillRect(x, gy - 6, 1, 3); ctx.fillRect(x + 1, gy - 5, 1, 2); }
   }
+  ctx.restore();
 
-  const sx = wx => Math.round(wx - J.dist + KX());
+  const sx = wx => rpx(wx - J.dist + KX());
 
   // Strays sitting by the trail.
   for (const s of J.strays) {

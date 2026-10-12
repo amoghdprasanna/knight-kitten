@@ -10,14 +10,22 @@ const STEP = 1 / 60;
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 let W = 240, H = 144, PXS = 1;
+// The game is drawn in "game pixels", but the canvas itself has one pixel
+// per CSS pixel (RS of them per game pixel). Sprites stay blocky, while the
+// camera and the kitten can sit between game pixels, so scrolling is smooth.
+let RS = 1;
+// How far the display is between the last two simulation steps (0..1).
+let RALPHA = 1;
+const rpx = v => Math.round(v * RS) / RS;
 
 function resize() {
   const iw = window.innerWidth, ih = window.innerHeight;
   PXS = Math.max(1, Math.round(ih / 150));
   H = Math.min(200, Math.max(110, Math.ceil(ih / PXS)));
   W = Math.min(380, Math.max(160, Math.ceil(iw / PXS)));
-  canvas.width = W;
-  canvas.height = H;
+  RS = PXS;
+  canvas.width = W * RS;
+  canvas.height = H * RS;
   canvas.style.width = W * PXS + 'px';
   canvas.style.height = H * PXS + 'px';
   ctx.imageSmoothingEnabled = false;

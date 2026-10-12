@@ -1907,19 +1907,54 @@ function drawVehSide(c, X, Y, type, col, f) {
   }
 }
 
-// Side views cached as little images, to be drawn turned on slanting roads.
-const B_VEH_SPR = new Map();
-function vehSprite(type, col, f) {
-  const key = `${type}|${col}|${f}`;
-  let cv = B_VEH_SPR.get(key);
-  if (!cv) {
-    cv = document.createElement('canvas');
-    cv.width = B_VEH[type].len + 4;
-    cv.height = 22;
-    drawVehSide(cv.getContext('2d'), cv.width / 2, 21, type, col, f);
-    B_VEH_SPR.set(key, cv);
+// A vehicle on a slanting road, seen from above at three-quarters: its
+// footprint turned to the way the road runs, the body built up layer by layer
+// so its sides show, then the cabin or canopy, roof and lights. (cx, cy) is
+// the centre of the footprint on the road; (hx, hy) the unit heading.
+function drawVehicleTop(v, cx, cy, hx, hy) {
+  const def = B_VEH[v.type], nx = -hy, ny = hx;
+  const quad = (len, wid, along, z) => {
+    const ax = cx + hx * along, ay = cy + hy * along - z, l = len / 2, w = wid / 2;
+    return [[ax + hx * l + nx * w, ay + hy * l + ny * w], [ax + hx * l - nx * w, ay + hy * l - ny * w], [ax - hx * l - nx * w, ay - hy * l - ny * w], [ax - hx * l + nx * w, ay - hy * l + ny * w]];
+  };
+  const L = def.len, Wd = Math.max(6, def.wid + 1);
+  const edge = (q, col) => { for (let i = 0; i < 4; i++) pixLine(ctx, q[i], q[(i + 1) % 4], col); };
+  ctx.globalAlpha = 0.28;
+  polyFill(ctx, quad(L + 2, Wd + 2, -1, -1), '#000000');
+  ctx.globalAlpha = 1;
+  const O = '#2b2220';
+  if (v.type === 'scooter') {
+    polyFill(ctx, quad(L, 4, 0, 1), O); polyFill(ctx, quad(L - 2, 3, 0, 2), v.col);
+    for (let z = 3; z < 9; z++) polyFill(ctx, quad(3, 3, -1, z), z > 6 ? '#d8433b' : '#5b8ee0');
+    return;
   }
-  return cv;
+  const body = v.type === 'auto' ? '#2e7d32' : v.col;
+  const hb = v.type === 'bus' ? 9 : v.type === 'auto' ? 3 : 4;
+  for (let z = 0; z <= hb; z++) {
+    let col = z === 0 ? '#1d1816' : shade(body, -0.32);
+    if (v.type === 'bus' && z >= hb - 4 && z <= hb - 2) col = '#7fa6c4';
+    polyFill(ctx, quad(L, Wd, 0, z), col);
+  }
+  const top = quad(L, Wd, 0, hb + 1);
+  polyFill(ctx, top, v.type === 'bus' ? shade(body, 0.18) : body);
+  edge(top, O);
+  if (v.type === 'car') {
+    for (let z = hb + 1; z <= hb + 3; z++) polyFill(ctx, quad(L * 0.52, Wd * 0.8, -L * 0.06, z), '#9cc4dc');
+    const roof = quad(L * 0.44, Wd * 0.72, -L * 0.07, hb + 4);
+    polyFill(ctx, roof, shade(body, 0.12)); edge(roof, O);
+  } else if (v.type === 'auto') {
+    for (let z = hb + 1; z <= hb + 5; z++) polyFill(ctx, quad(L * 0.72, Wd * 0.94, -L * 0.1, z), z < hb + 3 ? '#1d1816' : '#e0b316');
+    const roof = quad(L * 0.66, Wd * 0.9, -L * 0.1, hb + 6);
+    polyFill(ctx, roof, '#f0c419'); edge(roof, O);
+  } else if (v.type === 'bus') {
+    const led = quad(Wd * 0.3, Wd * 0.7, L / 2 - 2, hb + 1);
+    polyFill(ctx, led, '#ee8b3a');
+  }
+  // Headlights at the front corners.
+  const f = quad(L, Wd - 2, 0, 2);
+  ctx.fillStyle = '#fff3c8';
+  ctx.fillRect(Math.round(f[0][0]), Math.round(f[0][1]), 1, 1);
+  ctx.fillRect(Math.round(f[1][0]), Math.round(f[1][1]), 1, 1);
 }
 
 function drawVehicle(v, p) {
@@ -1930,15 +1965,9 @@ function drawVehicle(v, p) {
   const hx = g.ux * L.sd, hy = g.uy * L.sd;
   const off = Math.atan2(Math.abs(hy), Math.abs(hx));
   if (off > 0.3 && off < 1.25) {
-    const f = hx >= 0 ? 1 : -1;
-    const turn = Math.atan2(hy, hx) - (f > 0 ? 0 : Math.PI);
-    const img = vehSprite(v.type, v.col, f);
-    drawShadow(X, Y, def.len * 0.8, 0.25);
-    ctx.save();
-    ctx.translate(X, Y);
-    ctx.rotate(Math.atan2(Math.sin(turn), Math.cos(turn)) * 0.85);
-    ctx.drawImage(img, -img.width / 2, -21);
-    ctx.restore();
+    // Centred on the lane itself, not on the side-view anchor.
+    const q = laneXY(L, v.p);
+    drawVehicleTop(v, Math.round(q.x), Math.round(q.y), hx, hy);
     return;
   }
   if (off <= 0.3) {

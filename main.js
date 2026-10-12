@@ -22,7 +22,7 @@ function goToTitle() {
   scene = 'menu';
   document.body.classList.remove('journey', 'city');
   BL.active = false;
-  if (canvas.width !== W) resize();
+  if (canvas.width !== W * RS) resize();
   rng = Math.random;
   clearEnts();
   newArenaGame('story');
@@ -145,7 +145,9 @@ function frame(now) {
     steps++;
   }
   if (steps === 5) acc = 0;
+  RALPHA = clamp(acc / STEP, 0, 1);
   uiClear();
+  if (scene !== 'city') { ctx.setTransform(RS, 0, 0, RS, 0, 0); ctx.imageSmoothingEnabled = false; }
   if (scene === 'journey') { journeyDraw(); journeyUI(); }
   else if (scene === 'city') { cityDraw(); cityUI(); }
   else { arenaDraw(); if (scene === 'arena') drawArenaUI(); }

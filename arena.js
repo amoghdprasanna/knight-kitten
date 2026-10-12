@@ -1337,6 +1337,8 @@ function updateEnding(dt) {
 // Main arena step
 // ---------------------------------------------------------------------------
 function arenaTick(dt) {
+  // Remember where things were, so drawing can blend towards where they are.
+  kit.px = kit.x; kit.py = kit.y; kit.pz = kit.z; cam.px = cam.x; cam.py = cam.y;
   t += dt;
   const g = game;
 
@@ -1479,7 +1481,16 @@ function kittenFrame(k) {
 }
 
 // Shared by the arena and Journey: draws the knight with sword and effects.
+// Drawn at its exact position (to the nearest screen pixel), with the sprite
+// and sword laid out on whole game pixels so they stay lined up.
 function drawKnight(k, sx, sy) {
+  const ix = Math.round(sx), iy = Math.round(sy);
+  const fx = scene === 'city' ? 0 : rpx(sx - ix), fy = scene === 'city' ? 0 : rpx(sy - iy);
+  if (fx || fy) { ctx.save(); ctx.translate(fx, fy); drawKnightAt(k, ix, iy); ctx.restore(); }
+  else drawKnightAt(k, ix, iy);
+}
+
+function drawKnightAt(k, sx, sy) {
   const fr = kittenFrame(k);
   const f = k.facing;
   const fl = f > 0 ? 0 : 1;
@@ -1496,7 +1507,7 @@ function drawKnight(k, sx, sy) {
 function drawKitten() {
   if (kit.inv > 0 && kit.hurtT <= 0 && Math.floor(kit.inv * 14) % 2 === 0) return;
   kit.airborne = kit.z > kit.floor + 1;
-  drawKnight(kit, kit.x, kit.y - kit.z);
+  drawKnight(kit, kit.rx === undefined ? kit.x : kit.rx, (kit.ry === undefined ? kit.y : kit.ry) - (kit.rz === undefined ? kit.z : kit.rz));
 }
 
 function drawSword(k, ox, oy, f) {
@@ -1634,7 +1645,10 @@ function arenaDraw() {
   const g = game;
   const sh = g ? g.shake : 0;
   const shx = sh ? Math.round(rand(-sh, sh)) : 0, shy = sh ? Math.round(rand(-sh, sh)) : 0;
-  view = { x: Math.round(cam.x) - shx, y: Math.round(cam.y) - shy };
+  // The camera between the last two steps, snapped to whole screen pixels.
+  const blend = (a, b) => (a === undefined || Math.abs(b - a) > 40 ? b : a + (b - a) * RALPHA);
+  view = { x: rpx(blend(cam.px, cam.x)) - shx, y: rpx(blend(cam.py, cam.y)) - shy };
+  kit.rx = blend(kit.px, kit.x); kit.ry = blend(kit.py, kit.y); kit.rz = blend(kit.pz, kit.z);
   drawBackdrop(ctx, view, W, H, t);
   ctx.save();
   ctx.translate(-view.x, -view.y);
@@ -1643,7 +1657,7 @@ function arenaDraw() {
   if (g) drawMarkers();
   const visible = (x, y, pad = 60) => x > view.x - pad && x < view.x + W + pad && y > view.y - 20 && y < view.y + H + pad;
 
-  drawShadow(kit.x, kit.y - kit.floor, Math.max(6, 12 - (kit.z - kit.floor) / 4));
+  drawShadow(kit.rx, kit.ry - kit.floor, Math.max(6, 12 - (kit.rz - kit.floor) / 4));
   for (const e of ents) {
     if (!visible(e.x, e.y)) continue;
     if (e.kind === 'pickup' || e.kind === 'proj') drawShadow(e.x, e.y, 5, 0.2);
