@@ -749,6 +749,60 @@ function bPalace3D() {
 }
 
 // M. Chinnaswamy Stadium: an oval bowl of stands in red and gold, cantilever
+// Chinnaswamy from the side, as the metro sees it: the curved outer wall in
+// perspective, red and gold stands rising behind it, the far stands' roofs
+// with solar panels on cantilevered masts, and the floodlight towers.
+function bStadiumSide() {
+  const rx = B_STADIUM.rx, W0 = rx * 2 + 30, H0 = 196, cx = W0 / 2, base = H0 - 4;
+  const Hw = 38;
+  return bcv(W0, H0, (r) => {
+    const rnd = seeded(2008);
+    const bulge = x => Math.sqrt(Math.max(0, 1 - (x / rx) ** 2));
+    const tower = (x, top, front) => {
+      for (let y = top + 14; y < base - (front ? 0 : Hw + 6); y++) { r('#2a2a2e', x - 2, y, 4, 1); if (y % 5 === 0) r('#8a8f96', x - 1, y, 2, 1); }
+      r('#2a2a2e', x - 10, top, 20, 15); r('#4a4f58', x - 9, top + 1, 18, 13);
+      for (let k = 0; k < 3; k++) for (let j = 0; j < 5; j++) r('#fff6d8', x - 8 + j * 3.5 | 0, top + 2 + k * 4, 2, 2);
+    };
+    tower(cx - rx * 0.72 | 0, 4, false); tower(cx + rx * 0.72 | 0, 4, false);
+    // The far stands rising above the wall, rows of seats and a crowd.
+    for (let x = -rx + 2; x <= rx - 2; x++) {
+      const b = bulge(x), top = base - Hw - 6 * b - 22 * b;
+      for (let y = Math.round(top); y < base - Hw - 6 * b + 2; y++) {
+        const row = Math.floor((y - top) / 3);
+        let col = row % 2 ? '#c0392b' : row % 3 === 0 ? '#c9a227' : '#a8312a';
+        if (rnd() < 0.3) col = ['#f1ead8', '#2b2220', '#f2c94c', '#5b8ee0'][Math.floor(rnd() * 4)];
+        r(col, cx + x, y, 1, 1);
+      }
+    }
+    // Roofs over the far stands: solar panels on top, masts and cables.
+    for (let x = -rx + 10; x <= rx - 10; x++) {
+      const b = bulge(x), y0 = Math.round(base - Hw - 30 * b - 10);
+      if (Math.abs(x) < rx * 0.18) continue;
+      r('#3a3530', cx + x, y0 - 1, 1, 1);
+      for (let k = 0; k < 6; k++) r(k < 1 ? '#f4f6f8' : (Math.floor(x / 5) + k) % 2 ? '#2f4f8a' : '#3a5f9e', cx + x, y0 + k, 1, 1);
+      r('#c9ced2', cx + x, y0 + 6, 1, 1);
+      if (Math.abs(x) % 26 === 0) { for (let y = y0 - 14; y < y0 + 16; y++) r('#8a8f96', cx + x, y, 1, 1); for (let i = 0; i < 14; i++) r('#b8bec6', cx + x + Math.round(i * 1.4) * Math.sign(x || 1), y0 - 14 + i, 1, 1); }
+    }
+    // The outer wall, curving towards us in the middle.
+    const ramp = ['#4a4740', '#6e6a62', '#8a857a', '#a8a294', '#c4bfb2', '#d9d4c8'];
+    for (let x = -rx; x <= rx; x++) {
+      const b = bulge(x), yb = Math.round(base - 6 + 6 * b), nx = x / rx;
+      const v = nx * LIGHT[0] + Math.sqrt(1 - nx * nx) * LIGHT[2] + 0.2;
+      const top = yb - Hw - Math.round(6 * b) + 6;
+      for (let y = top; y <= yb; y++) r(rampAt(ramp, v, x + 400, y), cx + x, y, 1, 1);
+      r('#3a3530', cx + x, top - 1, 1, 1); r('#3a3530', cx + x, yb + 1, 1, 1);
+      r('#c0392b', cx + x, top + 6, 1, 3);
+      // Gates and windows along the wall.
+      const ax = Math.abs(x) % 30;
+      if (Math.abs(x) < rx - 10) {
+        if (ax < 8) for (let y = yb - 12; y <= yb; y++) r('#2b2620', cx + x, y, 1, 1);
+        else if (ax > 13 && ax < 24) for (let y = top + 13; y < top + 18; y++) r('#3a4a58', cx + x, y, 1, 1);
+      }
+    }
+    for (let x = -rx; x <= rx; x++) if (Math.abs(x) === rx) for (let y = base - Hw - 2; y < base; y++) r('#3a3530', cx + x, y, 1, 1);
+    tower(cx - rx * 0.5 | 0, 22, true); tower(cx + rx * 0.5 | 0, 22, true);
+  });
+}
 
 // roofs with solar panels over the far side, four tall floodlight towers.
 function bStadium3D() {
@@ -1341,6 +1395,7 @@ const B_ART = {
   // slate spires, pointed Gothic windows and ivy on the walls.
   palace: () => bPalace3D(),
   stadium: () => bStadium3D(),
+  stadiumSide: () => bStadiumSide(),
   kingfisher: () => bKingfisher3D(),
   iskcon: () => bIskcon3D(),
   wtc: () => bWtc3D(),

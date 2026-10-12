@@ -414,14 +414,11 @@ function placeLamps() {
     const step = r.lamps || 96, off = g.hw + (g.axis === 'h' ? 3 : 4);
     let i = 0;
     // Staggered: one side, then the other, `step` apart on each side.
-    // A lamp's pole rises up the screen; on a slanting road, a lamp on the low
-    // side would stand in the traffic, so those go only on the side it leans away from.
-    const upSide = g.axis === 'd' ? -Math.sign(g.ny) || 1 : 0;
-    alongSeg(g.x0, g.y0, g.x1, g.y1, upSide ? step : step / 2, (x, y) => {
-      const side = upSide || (i++ % 2 ? 1 : -1);
+    alongSeg(g.x0, g.y0, g.x1, g.y1, step / 2, (x, y) => {
+      const side = i++ % 2 ? 1 : -1;
       if (Math.hypot(x - g.x0, y - g.y0) < 20 || Math.hypot(x - g.x1, y - g.y1) < 20) return;
-      const lx = Math.round(x + g.nx * (off + (upSide ? 3 : 0)) * side);
-      let ly = Math.round(y + g.ny * (off + (upSide ? 3 : 0)) * side);
+      const lx = Math.round(x + g.nx * off * side);
+      let ly = Math.round(y + g.ny * off * side);
       if (g.axis === 'h' && ly > y) ly += 4;
       if (bSolid0(lx, ly) || B_RSEGS.some(o => o.road !== r && lx > o.bx0 - 3 && lx < o.bx1 + 3 && ly > o.by0 - 3 && ly < o.by1 + 3 && segDist(lx, ly, o) < o.hw + 3)) return;
       addStatic(img, lx, ly, { lamp: true });
@@ -1427,6 +1424,8 @@ window.addEventListener('pointerdown', e => {
 // ---------------------------------------------------------------------------
 const B_COLS = ['purple', 'green', 'yellow'];
 // What you see from the train; V switches.
+const B_RIDE_VIEWS = ['window', 'outside', 'skyline'];
+const B_RIDE_VIEW_NAMES = { window: 'Window view', outside: 'Outside view', skyline: 'Skyline view' };
 
 // The lines to ride from one station to another, changing at interchanges:
 // a list of legs { line, a, b } with station ids.
@@ -1481,7 +1480,8 @@ function confirmRide() {
         change: i + step === ib && li < legs.length - 1 ? B_LINES[legs[li + 1].line].name : null });
     }
   });
-  Object.assign(R, { phase: 'ride', to: to.id, segs, seg: 0, t: 0, s: segs[0].a, speed: 0, fast: false,
+  const view = B_RIDE_VIEWS.includes(BL.rideView) ? BL.rideView : 'window';
+  Object.assign(R, { phase: 'ride', view, to: to.id, segs, seg: 0, t: 0, s: segs[0].a, speed: 0, fast: false,
     caption: { kn: `Mundina nildana: ${segs[0].toName}`, en: `Next station: ${segs[0].toName}`, t: 2.6 } });
   setMusic('metro');
   sfx.chime();
@@ -1514,7 +1514,7 @@ function startAutoRide(stand) {
   if (fare) addFish(-fare);
   const track = { segs: [{ x0: stand.x, y0: stand.y, x1: drop.x, y1: drop.y, s0: 0, len: dist, axis: 'd' }], len: dist };
   BL.ride = {
-    kind: 'auto', phase: 'ride', to: w.id, drop, fare, talk: pick(B_AUTO_TALK), metres: bMetres(stand, drop),
+    kind: 'auto', phase: 'ride', view: 'outside', to: w.id, drop, fare, talk: pick(B_AUTO_TALK), metres: bMetres(stand, drop),
     segs: [{ line: 'auto', key: `auto-${Math.round(stand.x)},${Math.round(stand.y)}-${drop.x},${drop.y}`, track, a: 0, b: dist, toName: w.name, dur: 3 + Math.min(7, dist / 900) }],
     seg: 0, t: 0, s: 0, speed: 0, said1: false, said2: false, caption: null,
   };
@@ -1536,6 +1536,7 @@ function rideTick(dt) {
     if (input.pressed.jump || input.pressed.attack) confirmRide();
     return;
   }
+  if (input.pressed.view && R.kind !== 'auto') { R.view = BL.rideView = B_RIDE_VIEWS[(B_RIDE_VIEWS.indexOf(R.view) + 1) % B_RIDE_VIEWS.length]; sfx.blip(); }
   // Hold dash to hurry the train along.
   R.fast = R.kind !== 'auto' && input.held.dash;
   R.t += dt * (R.fast ? 3 : 1);
@@ -1612,8 +1613,7 @@ function bDaylight() {
 
 function cityDraw() {
   const k = BL;
-  const riding = k.ride && k.ride.phase !== 'pick';
-  const zoom = riding ? 3 : k.ride ? 2 : B_VIEW_INFO[k.view].zoom;
+  const zoom = k.ride ? 2 : B_VIEW_INFO[k.view].zoom;
   if (canvas.width !== W * zoom || canvas.height !== H * zoom) {
     canvas.width = W * zoom;
     canvas.height = H * zoom;
@@ -1621,8 +1621,8 @@ function cityDraw() {
   }
   const vw = canvas.width, vh = canvas.height;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  const focus = riding ? rideFocus() : k;
-  const cx = Math.round(clamp(focus.x - vw / 2, 0, BW - vw)), cy = Math.round(clamp(focus.y - vh * (riding ? 0.5 : 0.6), 0, BH - vh));
+  if (k.ride && k.ride.phase !== 'pick') { drawRide(vw, vh); return; }
+  const cx = Math.round(clamp(k.x - vw / 2, 0, BW - vw)), cy = Math.round(clamp(k.y - vh * 0.6, 0, BH - vh));
   k.cam = { x: cx, y: cy, w: vw, h: vh, zoom };
   ctx.fillStyle = '#5d8a3e';
   ctx.fillRect(0, 0, vw, vh);
@@ -1659,7 +1659,7 @@ function cityDraw() {
     if (g.under || g.axis !== 'h' || !bOnScreen((g.x0 + g.x1) / 2, g.y0, Math.abs(g.x1 - g.x0) / 2 + 10)) continue;
     for (let x = Math.min(g.x0, g.x1) + 30; x < Math.max(g.x0, g.x1); x += 60) if (bOnScreen(x, g.y0, 10)) list.push({ y: g.y0 + 1, pillar: x, py: g.y0 });
   }
-  if (!riding) list.push({ y: k.y, kitten: true });
+  list.push({ y: k.y, kitten: true });
   list.sort((a, b) => a.y - b.y);
   let kitDone = false, hidden = false;
   for (const it of list) {
@@ -1680,10 +1680,9 @@ function cityDraw() {
     else if (it.pillar) { ctx.fillStyle = '#6e6a62'; ctx.fillRect(it.pillar - 3, it.py - 16, 6, 17); ctx.fillStyle = '#a8a294'; ctx.fillRect(it.pillar - 3, it.py - 16, 2, 17); }
     else if (it.kitten) { drawCityKitten(); kitDone = true; }
   }
-  if (hidden && !riding) { ctx.globalAlpha = 0.45; drawCityKitten(); ctx.globalAlpha = 1; }
+  if (hidden) { ctx.globalAlpha = 0.45; drawCityKitten(); ctx.globalAlpha = 1; }
   drawMetroOverlay();
-  if (riding) k.ride.mark = drawRideVehicle();
-  if (!riding && bUnderDeck(k.x, k.y)) { ctx.globalAlpha = 0.5; drawCityKitten(); ctx.globalAlpha = 1; }
+  if (bUnderDeck(k.x, k.y)) { ctx.globalAlpha = 0.5; drawCityKitten(); ctx.globalAlpha = 1; }
   drawAir();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   drawNight(vw, vh);
@@ -2189,33 +2188,389 @@ function sketchFilter(vw, vh, ox, oy) {
 const B_SKIP_RIDE = ['statue', 'ksrcanopy', 'flyover'];
 function rideTrack(seg) { return seg.track || B_LINES[seg.line]; }
 
-// Rides are seen from the air: the camera flies above the real city,
-// following the train (or the auto) along its route, so every landmark looks
-// just as it does on foot.
-function rideFocus() {
-  const R = BL.ride, seg = R.segs[R.seg], T = rideTrack(seg);
-  const dir = Math.sign(seg.b - seg.a) || 1;
-  const p = linePoint(T, R.s), q = linePoint(T, R.s + dir * 4);
-  const len = Math.hypot(q.x - p.x, q.y - p.y) || 1;
-  return { x: p.x, y: p.y, hx: (q.x - p.x) / len, hy: (q.y - p.y) / len, under: !!p.under, dir };
+// Buildings and trees near the line, with how far along it they are and how far from it.
+function rideItems(seg) {
+  const key = seg.key || seg.line;
+  BL.rideCache = BL.rideCache || {};
+  if (BL.rideCache[key]) return BL.rideCache[key];
+  if (seg.key) for (const k of Object.keys(BL.rideCache)) if (k.startsWith('auto')) delete BL.rideCache[k];
+  const L = rideTrack(seg), out = [];
+  for (const st of BL.statics) {
+    if (st.lamp || (st.kind === 'bld' && B_SKIP_RIDE.includes(st.b.spr))) continue;
+    const cx = st.x + (st.img.fw || st.w) / 2;
+    const { s: along, d } = lineProject(L, cx, st.base);
+    // Some landmarks have a side view for the train window (the stadium's bowl reads wrong side-on).
+    const img = (st.kind === 'bld' && BL.spr[`${st.b.spr}Side`]) || st.img;
+    if (d < 460 && d > 18) out.push({ img, along, d, tree: !!st.tree });
+  }
+  out.sort((a, b) => b.d - a.d);
+  return (BL.rideCache[key] = out);
 }
 
-// The train or auto you're riding, with a marker over it.
-function drawRideVehicle() {
-  const R = BL.ride, seg = R.segs[R.seg], f = rideFocus();
+// For the skyline view: landmarks within a couple of kilometres, with their
+// names, and the homes, shops and trees right by the line.
+function rideSkyline(line) {
+  BL.skyCache = BL.skyCache || {};
+  if (BL.skyCache[line]) return BL.skyCache[line];
+  const L = B_LINES[line], near = [], icons = [];
+  for (const st of BL.statics) {
+    if (st.lamp || (st.kind === 'bld' && B_SKIP_RIDE.includes(st.b.spr))) continue;
+    const cx = st.x + (st.img.fw || st.w) / 2;
+    const p = lineProject(L, cx, st.base);
+    if (st.kind === 'bld' && st.b.icon) { if (p.d < 1500) icons.push({ img: BL.spr[`${st.b.spr}Side`] || st.img, along: p.s, d: p.d, name: st.b.name || '' }); }
+    else if (p.d < 320 && p.d > 16) near.push({ img: st.img, along: p.s, d: p.d });
+  }
+  icons.sort((a, b) => b.d - a.d);
+  near.sort((a, b) => b.d - a.d);
+  return (BL.skyCache[line] = { near, icons });
+}
+
+// Stations along a line as positions along it.
+function rideStops(seg) {
+  if (seg.line === 'auto') return [];
+  const L = B_LINES[seg.line];
+  return L.stations.map(st => ({ along: st.s, name: st.name, under: linePoint(L, st.s).under, change: B_STATIONS[st.id].lines.length > 1 }));
+}
+
+// Sky, hills or skyline, real buildings and trees, then the track or platform.
+// `y0`..`y1` is the band of screen the scene fills; returns name boards for the UI.
+function drawRideScene(vw, vh, horizon, nearY, s, dir, seg) {
+  const day = bDaylight();
+  const top = lerpRgb([110, 168, 220], [28, 32, 64], day.dark / 0.7), bot = lerpRgb([214, 234, 242], [92, 70, 110], day.dark / 0.7);
+  for (let y = 0; y < horizon; y++) {
+    const v = (y / horizon) * 7;
+    const i = Math.floor(v) + ((v % 1) > dither(0, y) ? 1 : 0);
+    ctx.fillStyle = rgbStr(lerpRgb(top, bot, Math.min(1, i / 7)));
+    ctx.fillRect(0, y, vw, 1);
+  }
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  for (let i = 0; i < 8; i++) pixEllipse(ctx, wrap(i * 97 - s * 0.04 * dir, vw + 80) - 40, Math.round(horizon * (0.15 + (i * 13 % 40) / 100)), 14, 4);
+  // Far: a hazy skyline of apartment blocks.
+  const step = 26, k = 0.1, base = Math.floor(s * k * dir / step);
+  for (let j = -2; j < vw / step + 3; j++) {
+    const id = base + j, x = Math.round(j * step - wrap(s * k * dir, step));
+    const h = 18 + slotRand(id, 1) * 30, w = 14 + slotRand(id, 3) * 14;
+    ctx.fillStyle = day.dark > 0.3 ? '#3a3f5a' : '#b4c0cc'; ctx.fillRect(x, horizon - h, w, h);
+    ctx.fillStyle = day.dark > 0.3 ? '#ffd98a' : '#c9d3dc';
+    for (let wy = horizon - h + 3; wy < horizon - 3; wy += 5) for (let wx = x + 2; wx < x + w - 2; wx += 4) if (slotRand(id + wx, wy) < 0.5) ctx.fillRect(wx, wy, 2, 2);
+  }
+  // Ground between the horizon and the track.
+  const g0 = lerpRgb([120, 160, 84], [40, 56, 40], day.dark / 0.7);
+  ctx.fillStyle = rgbStr(g0); ctx.fillRect(0, horizon, vw, nearY - horizon);
+  // The real city along the route: far things small and slow, near things big and fast.
+  for (const it of rideItems(seg)) {
+    const p = clamp(1 - it.d / 460, 0.08, 1);
+    const sc = 0.22 + 0.78 * p;
+    const x = vw / 2 + (it.along - s) * dir * (0.25 + 0.95 * p);
+    const w = it.img.width * sc;
+    if (x + w < -20 || x - w > vw + 20) continue;
+    const by = horizon + (nearY - horizon) * p * 0.9;
+    const h = it.img.height * sc;
+    ctx.drawImage(it.img, Math.round(x - w / 2), Math.round(by - h), Math.round(w), Math.round(h));
+  }
+  // Stations: a platform with its canopy and a name board, passing at track speed.
+  const boards = [];
+  for (const st of rideStops(seg)) {
+    const x = vw / 2 + (st.along - s) * dir * 1.3;
+    if (x < -260 || x > vw + 260 || st.under) continue;
+    const pw = 240, L = B_LINES[seg.line];
+    ctx.fillStyle = '#d9d2c4'; ctx.fillRect(Math.round(x - pw / 2), nearY - 10, pw, 10);
+    ctx.fillStyle = '#e8d36a'; ctx.fillRect(Math.round(x - pw / 2), nearY - 10, pw, 2);
+    ctx.fillStyle = '#f4f1ea'; ctx.fillRect(Math.round(x - pw / 2 - 6), Math.round(horizon * 0.5), pw + 12, 8);
+    ctx.fillStyle = L.col; ctx.fillRect(Math.round(x - pw / 2 - 6), Math.round(horizon * 0.5) + 8, pw + 12, 2);
+    for (let px = -pw / 2; px <= pw / 2; px += 48) { ctx.fillStyle = '#8a8f96'; ctx.fillRect(Math.round(x + px), Math.round(horizon * 0.5) + 10, 3, nearY - 10 - Math.round(horizon * 0.5) - 10); }
+    ctx.fillStyle = '#1d1816'; ctx.fillRect(Math.round(x - 44), Math.round(horizon * 0.66), 88, 14); ctx.fillStyle = L.col; ctx.fillRect(Math.round(x - 43), Math.round(horizon * 0.66) + 1, 86, 12);
+    boards.push({ x, y: horizon * 0.66 + 7, text: st.name, color: '#ffffff', bg: null });
+  }
+  return boards;
+}
+
+// Three metro coaches side-on, with Ser Biscuit at a window.
+function drawMetroSide(L, cx, ty, rock) {
+  const tw = 56, tx0 = Math.round(cx - tw * 1.5);
+  for (let i = 0; i < 3; i++) {
+    const x = tx0 + i * tw;
+    ctx.fillStyle = '#2b2220'; ctx.fillRect(x, ty - rock, tw - 1, 21);
+    ctx.fillStyle = '#eceaf0'; ctx.fillRect(x + 1, ty + 1 - rock, tw - 3, 19);
+    ctx.fillStyle = L.col; ctx.fillRect(x + 1, ty + 13 - rock, tw - 3, 5); ctx.fillRect(x + 1, ty + 1 - rock, tw - 3, 2);
+    for (let wx = 4; wx < tw - 8; wx += 9) { ctx.fillStyle = '#3a4a58'; ctx.fillRect(x + wx, ty + 5 - rock, 7, 6); }
+    ctx.fillStyle = '#9a9aa6'; ctx.fillRect(x + tw / 2 - 3, ty + 4 - rock, 6, 13);
+  }
+  ctx.drawImage(SPR.kitten.idle.img[0], 0, 0, 24, 14, tx0 + tw + 12, ty + 3 - rock, 12, 7);
+}
+
+// An auto-rickshaw side-on, about twice street size, with Ser Biscuit in the back.
+function drawAutoSide(cx, y, rock, spin) {
+  const R = (x, yy, w, h, col) => { ctx.fillStyle = col; ctx.fillRect(Math.round(cx + x), Math.round(y + yy - rock), w, h); };
+  R(-24, -38, 40, 7, '#1d1816'); R(-23, -37, 38, 4, '#2b2220');
+  R(-24, -31, 2, 14, '#1d1816'); R(12, -31, 2, 12, '#1d1816');
+  R(-26, -18, 48, 14, '#1d1816'); R(-25, -17, 46, 6, '#f0c419'); R(-25, -17, 46, 1, '#ffe27a'); R(-25, -11, 46, 6, '#2e7d32');
+  R(20, -16, 8, 11, '#1d1816'); R(21, -15, 6, 9, '#2e7d32'); R(25, -12, 2, 2, '#fff3c8');
+  R(13, -31, 7, 14, '#1d1816'); R(14, -30, 5, 12, '#9cc4dc'); R(14, -30, 1, 12, '#d8eef6');
+  R(4, -29, 5, 5, '#7a5236'); R(4, -30, 5, 2, '#1d1816'); R(3, -24, 7, 7, '#d9c7a2');
+  ctx.drawImage(SPR.kitten.idle.img[0], 0, 0, 24, 14, Math.round(cx - 20), Math.round(y - 30 - rock), 16, 10);
+  for (const wx of [-15, 18]) {
+    R(wx - 5, -6, 11, 11, '#1d1816'); R(wx - 3, -4, 7, 7, '#5d6369');
+    const a = spin * 0.3;
+    R(wx + Math.round(Math.cos(a) * 2), -1 + Math.round(Math.sin(a) * 2), 1, 1, '#c9ced2');
+  }
+  R(-30, -6, 5, 2, '#5d6369');
+}
+
+// Underground: a dark tunnel streaking past the windows, and at each
+// underground station a bright tiled platform with its name board.
+function drawTunnelScene(vw, vh, horizon, nearY, s, dir, seg) {
+  const L = B_LINES[seg.line];
+  // Rings of the tunnel lining, cable trays and lamps, all rushing past at track speed.
+  const top = Math.round(nearY * 0.38), mid = Math.round(nearY * 0.62);
+  ctx.fillStyle = '#121418'; ctx.fillRect(0, 0, vw, nearY);
+  ctx.fillStyle = '#1f2228'; ctx.fillRect(0, top, vw, nearY - top);
+  for (let x = -wrap(s * 1.3 * dir, 34); x < vw; x += 34) { ctx.fillStyle = '#2a2e35'; ctx.fillRect(Math.round(x), top, 3, nearY - top); }
+  ctx.fillStyle = '#3a3f47'; ctx.fillRect(0, mid, vw, 3); ctx.fillRect(0, mid + 8, vw, 2); ctx.fillStyle = '#4a4f58'; ctx.fillRect(0, mid, vw, 1);
+  for (let x = -wrap(s * 1.3 * dir, 120); x < vw; x += 120) {
+    ctx.fillStyle = 'rgba(255,233,168,0.22)'; ctx.fillRect(Math.round(x) - 8, top + 4, 30, 8);
+    ctx.fillStyle = '#ffe9a8'; ctx.fillRect(Math.round(x), top + 7, 14, 2);
+  }
+  for (let x = -wrap(s * 1.3 * dir + 57, 360); x < vw; x += 360) { ctx.fillStyle = '#2f8a3a'; ctx.fillRect(Math.round(x), mid + 16, 18, 7); ctx.fillStyle = '#ffffff'; ctx.fillRect(Math.round(x) + 3, mid + 18, 12, 1); ctx.fillRect(Math.round(x) + 3, mid + 20, 8, 1); }
+  const boards = [];
+  for (const st of rideStops(seg)) {
+    const x = vw / 2 + (st.along - s) * dir * 1.3;
+    if (x < -280 || x > vw + 280 || !st.under) continue;
+    const pw = 260, x0 = Math.round(x - pw / 2);
+    ctx.fillStyle = '#e9e4dc'; ctx.fillRect(x0, 0, pw, nearY);
+    for (let tx = x0; tx < x0 + pw; tx += 8) { ctx.fillStyle = '#d3cdc2'; ctx.fillRect(tx, 0, 1, nearY); }
+    for (let ty = 4; ty < nearY; ty += 8) { ctx.fillStyle = '#d3cdc2'; ctx.fillRect(x0, ty, pw, 1); }
+    ctx.fillStyle = L.col; ctx.fillRect(x0, top + 6, pw, 5);
+    ctx.fillStyle = '#ffffff'; for (let lx = x0 + 10; lx < x0 + pw - 10; lx += 40) ctx.fillRect(lx, 3, 24, 3);
+    for (let px = x0 + 20; px < x0 + pw; px += 60) { ctx.fillStyle = '#b9b2a6'; ctx.fillRect(px, 0, 8, nearY); ctx.fillStyle = '#d9d2c4'; ctx.fillRect(px, 0, 2, nearY); }
+    for (let i = 0; i < 6; i++) drawPerson(x0 + 40 + i * 37 + (i % 2) * 8, nearY - 2, { skin: ['#c48a5c', '#9a6a45', '#7a5236'][i % 3], hair: '#1d1816', top: ['#5b8ee0', '#d8433b', '#f2c94c', '#2f8a3a', '#f4f1ea', '#c3a0ec'][i], bottom: '#2b2a33', facing: i % 2 ? 1 : -1 }, false);
+    const by = top + 16;
+    ctx.fillStyle = '#1d1816'; ctx.fillRect(Math.round(x - 52), by, 104, 14); ctx.fillStyle = L.col; ctx.fillRect(Math.round(x - 51), by + 1, 102, 12);
+    boards.push({ x, y: by + 7, text: st.name, color: '#ffffff', bg: null });
+  }
+  return boards;
+}
+
+function drawRide(vw, vh) {
+  const R = BL.ride, seg = R.segs[R.seg];
+  const dir = Math.sign(seg.b - seg.a) || 1;
+  const rock = R.speed > 20 ? (Math.floor(BL.t * 12) % 2) : 0;
+  const L = R.kind === 'metro' ? B_LINES[seg.line] : null;
+  const under = L && linePoint(L, R.s).under;
+  R.layout = null; R.labels = null;
+  ctx.fillStyle = '#5d8a3e';
+  ctx.fillRect(0, 0, vw, vh);
   if (R.kind === 'auto') {
-    drawVehicleTop({ type: 'auto', col: null }, Math.round(f.x), Math.round(f.y), f.hx, f.hy);
-    return { x: f.x, y: f.y - 18 };
+    // The road, the city going by, and the auto bouncing along.
+    const horizon = Math.round(vh * 0.58), roadY = horizon + 40;
+    R.boards = drawRideScene(vw, vh, horizon, roadY - 14, R.s, dir, seg);
+    ctx.fillStyle = '#b9ae99'; ctx.fillRect(0, roadY - 14, vw, 8);
+    ctx.fillStyle = '#d8d2c4'; ctx.fillRect(0, roadY - 7, vw, 1);
+    ctx.fillStyle = '#56595f'; ctx.fillRect(0, roadY - 6, vw, vh - roadY + 6);
+    for (let x = -wrap(R.s * 1.6, 44); x < vw; x += 44) { ctx.fillStyle = '#ece6d4'; ctx.fillRect(Math.round(x), roadY + 22, 22, 2); }
+    const bump = R.speed > 20 ? (Math.floor(BL.t * 9) % 3 === 0 ? 1 : 0) : 0;
+    drawAutoSide(Math.round(vw / 2), roadY + 14, bump, BL.t * 20 * (R.speed > 1 ? 1 : 0));
+  } else if (R.view !== 'window' && under) {
+    // A cut-away: the street above, earth, and the train in its tunnel.
+    const horizon = Math.round(vh * 0.24), surface = Math.round(vh * 0.36);
+    R.boards = drawRideScene(vw, vh, horizon, surface, R.s, dir, seg);
+    ctx.fillStyle = '#56595f'; ctx.fillRect(0, surface - 4, vw, 4);
+    ctx.fillStyle = '#8a6a4a'; ctx.fillRect(0, surface, vw, vh - surface);
+    for (const [k, col] of [[0.1, '#7a5a3a'], [0.3, '#9a7a52'], [0.85, '#6b4a32']]) { ctx.fillStyle = col; ctx.fillRect(0, Math.round(surface + (vh - surface) * k), vw, 3); }
+    for (let i = 0; i < 40; i++) { const x = wrap(i * 97 - R.s * 0.9 * dir, vw + 20) - 10, y = surface + 6 + (i * 37) % (vh - surface - 12); ctx.fillStyle = i % 3 ? '#6b4a32' : '#a39b8a'; ctx.fillRect(Math.round(x), Math.round(y), 3 + i % 4, 2); }
+    const ty = Math.round(vh * 0.66);
+    ctx.fillStyle = '#2b2620'; ctx.fillRect(0, ty - 30, vw, 40); ctx.fillStyle = '#3a3f47'; ctx.fillRect(0, ty - 28, vw, 36);
+    for (let x = -wrap(R.s * 1.3 * dir, 30); x < vw; x += 30) { ctx.fillStyle = '#4a4f58'; ctx.fillRect(Math.round(x), ty - 28, 2, 36); }
+    for (let x = -wrap(R.s * 1.3 * dir, 120); x < vw; x += 120) { ctx.fillStyle = '#ffe9a8'; ctx.fillRect(Math.round(x), ty - 26, 10, 1); }
+    for (const st of rideStops(seg)) {
+      const x = vw / 2 + (st.along - R.s) * dir * 1.3;
+      if (!st.under || x < -150 || x > vw + 150) continue;
+      ctx.fillStyle = '#e9e4dc'; ctx.fillRect(Math.round(x - 130), ty - 40, 260, 50); ctx.fillStyle = L.col; ctx.fillRect(Math.round(x - 130), ty - 40, 260, 3);
+      ctx.fillStyle = '#1d1816'; ctx.fillRect(Math.round(x - 48), ty - 56, 96, 13); ctx.fillStyle = L.col; ctx.fillRect(Math.round(x - 47), ty - 55, 94, 11);
+      R.boards.push({ x, y: ty - 49.5, text: st.name, color: '#ffffff', bg: null });
+      for (const sx of [-120, 120]) { ctx.fillStyle = '#5d6369'; ctx.fillRect(Math.round(x + sx), surface - 18, 8, 18); ctx.fillStyle = L.col; ctx.fillRect(Math.round(x + sx), surface - 22, 8, 4); }
+    }
+    ctx.fillStyle = '#6e6a62'; ctx.fillRect(0, ty + 1, vw, 3);
+    drawMetroSide(L, vw / 2, ty - 20, rock);
+  } else if (R.view === 'skyline') {
+    drawSkyline(vw, vh, R, seg, dir, rock);
+  } else if (R.view === 'outside') {
+    const horizon = Math.round(vh * 0.62), deckY = horizon + 30;
+    R.boards = drawRideScene(vw, vh, horizon, deckY - 20, R.s, dir, seg);
+    ctx.fillStyle = '#5d8a3e'; ctx.fillRect(0, deckY + 9, vw, vh - deckY - 9);
+    ctx.fillStyle = '#4a4740'; ctx.fillRect(0, deckY, vw, 9);
+    ctx.fillStyle = '#c9c2b6'; ctx.fillRect(0, deckY + 1, vw, 5);
+    for (let j = -1; j < vw / 70 + 2; j++) {
+      const x = Math.round(j * 70 - wrap(R.s * 1.3 * dir, 70));
+      ctx.fillStyle = '#6e6a62'; ctx.fillRect(x, deckY + 9, 8, vh - deckY - 9);
+    }
+    drawMetroSide(L, vw / 2, deckY - 21, rock);
+  } else {
+    drawCoach(vw, vh, R, seg, dir, rock, under);
   }
-  if (f.under) {
-    // Underground: a ring on the street above, pulsing where the train is.
-    const r = 10 + Math.sin(BL.t * 6) * 2;
-    ctx.fillStyle = B_LINES[seg.line].col;
-    for (let a = 0; a < Math.PI * 2; a += 0.08) ctx.fillRect(Math.round(f.x + Math.cos(a) * r), Math.round(f.y + Math.sin(a) * r * 0.6), 2, 2);
-    return { x: f.x, y: f.y - 10 };
+  drawNight(vw, vh, false);
+  if (BL.view === 'sketch') sketchFilter(vw, vh, 0, 0);
+}
+
+// The skyline from beside the viaduct: landmarks big, slow and named on the
+// horizon, homes and trees close by rushing past, stations with their
+// canopies, and the train on the viaduct with Ser Biscuit at a window.
+function drawSkyline(vw, vh, R, seg, dir, rock) {
+  const L = B_LINES[seg.line], s = R.s, day = bDaylight();
+  const horizon = Math.round(vh * 0.58), deckY = Math.round(vh * 0.8);
+  R.boards = []; R.labels = [];
+  const top = lerpRgb([104, 164, 222], [28, 32, 64], day.dark / 0.7), bot = lerpRgb([222, 238, 244], [92, 70, 110], day.dark / 0.7);
+  for (let y = 0; y < horizon; y++) {
+    const v = (y / horizon) * 7, i = Math.floor(v) + ((v % 1) > dither(0, y) ? 1 : 0);
+    ctx.fillStyle = rgbStr(lerpRgb(top, bot, Math.min(1, i / 7)));
+    ctx.fillRect(0, y, vw, 1);
   }
-  drawMetroTrain({ line: seg.line, s: R.s, dir: f.dir });
-  return { x: f.x, y: f.y - DECK - 22 };
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  for (let i = 0; i < 9; i++) pixEllipse(ctx, wrap(i * 97 - s * 0.03 * dir, vw + 80) - 40, Math.round(horizon * (0.1 + (i * 13 % 36) / 100)), 16, 4);
+  // A hazy far skyline of apartment blocks with water tanks.
+  const step = 22, base = Math.floor(s * 0.08 * dir / step);
+  for (let j = -2; j < vw / step + 3; j++) {
+    const id = base + j, x = Math.round(j * step - wrap(s * 0.08 * dir, step));
+    const h = 14 + slotRand(id, 1) * 30, w = 12 + slotRand(id, 3) * 14;
+    ctx.fillStyle = day.dark > 0.3 ? '#3a3f5a' : '#bcc6d0'; ctx.fillRect(x, horizon - h, w, h);
+    ctx.fillStyle = day.dark > 0.3 ? '#2a2e44' : '#a8b4c0'; ctx.fillRect(x + 2, horizon - h - 3, 4, 3);
+    ctx.fillStyle = day.dark > 0.3 ? '#ffd98a' : '#cdd6de';
+    for (let wy = horizon - h + 3; wy < horizon - 3; wy += 5) for (let wx = x + 2; wx < x + w - 2; wx += 4) if (slotRand(id + wx, wy) < 0.5) ctx.fillRect(wx, wy, 2, 2);
+  }
+  ctx.fillStyle = rgbStr(lerpRgb([126, 164, 88], [40, 56, 40], day.dark / 0.7)); ctx.fillRect(0, horizon, vw, vh - horizon);
+  const { near, icons } = rideSkyline(seg.line);
+  for (const it of icons) {
+    const p = 1 - it.d / 1500;
+    const sc = 0.22 + 0.36 * p, par = 0.3 + 0.55 * p;
+    const x = vw / 2 + (it.along - s) * dir * par;
+    const w = it.img.width * sc, h = it.img.height * sc;
+    if (x + w < -30 || x - w > vw + 30) continue;
+    const by = horizon + 4 + p * 20;
+    ctx.drawImage(it.img, Math.round(x - w / 2), Math.round(by - h), Math.round(w), Math.round(h));
+    if (it.name && p > 0.35 && Math.abs(x - vw / 2) < vw * 0.45) R.labels.push({ x, y: by - h - 3, text: it.name });
+  }
+  for (const it of near) {
+    const p = 1 - it.d / 320;
+    const sc = 0.42 + 0.4 * p, par = 0.85 + 0.45 * p;
+    const x = vw / 2 + (it.along - s) * dir * par;
+    const w = it.img.width * sc, h = it.img.height * sc;
+    if (x + w < -20 || x - w > vw + 20) continue;
+    const by = horizon + 26 + p * (deckY - horizon - 30);
+    ctx.drawImage(it.img, Math.round(x - w / 2), Math.round(by - h), Math.round(w), Math.round(h));
+  }
+  // Stations above ground: platform, canopy in the line colour, and a name board.
+  for (const st of rideStops(seg)) {
+    const x = vw / 2 + (st.along - s) * dir * 1.4;
+    if (st.under || x < -200 || x > vw + 200) continue;
+    const pw = 220, y0 = deckY - 46;
+    ctx.fillStyle = '#3a3530'; ctx.fillRect(Math.round(x - pw / 2 - 2), y0 - 2, pw + 4, 9);
+    ctx.fillStyle = '#f4f1ea'; ctx.fillRect(Math.round(x - pw / 2), y0, pw, 5); ctx.fillStyle = L.col; ctx.fillRect(Math.round(x - pw / 2), y0 + 5, pw, 2);
+    for (let px = -pw / 2 + 4; px <= pw / 2 - 4; px += 36) { ctx.fillStyle = '#8a8f96'; ctx.fillRect(Math.round(x + px), y0 + 7, 3, deckY - y0 - 7); }
+    ctx.fillStyle = '#1d1816'; ctx.fillRect(Math.round(x - 46), y0 - 18, 92, 14); ctx.fillStyle = L.col; ctx.fillRect(Math.round(x - 45), y0 - 17, 90, 12);
+    R.boards.push({ x, y: y0 - 11, text: st.name, color: '#ffffff' });
+  }
+  // The viaduct and its pillars rushing past.
+  ctx.fillStyle = '#4a4740'; ctx.fillRect(0, deckY, vw, 10);
+  ctx.fillStyle = '#c9c2b6'; ctx.fillRect(0, deckY + 1, vw, 6);
+  ctx.fillStyle = '#8a857a'; ctx.fillRect(0, deckY + 7, vw, 3);
+  for (let j = -1; j < vw / 80 + 2; j++) {
+    const x = Math.round(j * 80 - wrap(s * 1.5 * dir, 80));
+    ctx.fillStyle = '#6e6a62'; ctx.fillRect(x, deckY + 10, 10, vh - deckY - 10);
+    ctx.fillStyle = '#a8a294'; ctx.fillRect(x, deckY + 10, 3, vh - deckY - 10);
+  }
+  // The train, four coaches, doors dark while it stands at a platform.
+  const tw = 54, ty = deckY - 21, tx0 = Math.round(vw / 2 - tw * 2);
+  for (let i = 0; i < 4; i++) {
+    const x = tx0 + i * tw;
+    ctx.fillStyle = '#2b2220'; ctx.fillRect(x, ty - rock, tw - 1, 21);
+    ctx.fillStyle = '#eceaf0'; ctx.fillRect(x + 1, ty + 1 - rock, tw - 3, 19);
+    ctx.fillStyle = L.col; ctx.fillRect(x + 1, ty + 13 - rock, tw - 3, 5); ctx.fillRect(x + 1, ty + 1 - rock, tw - 3, 2);
+    for (let wx = 4; wx < tw - 8; wx += 9) { ctx.fillStyle = '#3a4a58'; ctx.fillRect(x + wx, ty + 5 - rock, 7, 6); }
+    ctx.fillStyle = R.phase === 'dwell' ? '#3a4a58' : '#9a9aa6'; ctx.fillRect(x + tw / 2 - 3, ty + 4 - rock, 6, 13);
+  }
+  const nose = dir > 0 ? tx0 + tw * 4 - 1 : tx0 - 2;
+  ctx.fillStyle = '#2b2220'; ctx.fillRect(nose, ty + 3 - rock, 3, 15); ctx.fillStyle = '#fff3c8'; ctx.fillRect(nose + (dir > 0 ? 2 : 0), ty + 14 - rock, 1, 2);
+  ctx.drawImage(SPR.kitten.idle.img[0], 0, 0, 24, 14, tx0 + tw + 13, ty + 4 - rock, 12, 7);
+  if (R.speed > 60) {
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    for (let i = 0; i < 6; i++) ctx.fillRect(Math.round(wrap(i * 71 - BL.t * 500 * dir, vw)), deckY + 16 + (i * 7) % Math.max(1, vh - deckY - 18), 22, 1);
+  }
+}
+// Inside the coach: the city through the windows, poles, swinging handles,
+// seats, a passenger or two, and Ser Biscuit with paws on the window sill.
+function drawCoach(vw, vh, R, seg, dir, rock, under) {
+  const wy0 = Math.round(vh * 0.24), wy1 = Math.round(vh * 0.66);
+  const horizon = Math.round(wy0 + (wy1 - wy0) * 0.62);
+  R.boards = under ? drawTunnelScene(vw, vh, horizon, wy1 + 2, R.s, dir, seg) : drawRideScene(vw, vh, horizon, wy1 + 2, R.s, dir, seg);
+  // The parapet of the viaduct rushing past just below the window.
+  if (under) {
+    ctx.fillStyle = '#2a2e35'; ctx.fillRect(0, wy1 - 9, vw, 11);
+  } else {
+    ctx.fillStyle = '#b8b2a6'; ctx.fillRect(0, wy1 - 9, vw, 11);
+    ctx.fillStyle = '#d9d2c4'; ctx.fillRect(0, wy1 - 9, vw, 2);
+    for (let x = -wrap(R.s * 2.2 * dir, 40); x < vw; x += 40) { ctx.fillStyle = '#8a857a'; ctx.fillRect(Math.round(x), wy1 - 8, 1, 10); }
+  }
+  // Coach walls around two windows (with rounded corners), plus the line stripe.
+  const L = B_LINES[seg.line];
+  const wall = '#d6d9df', accent = L.col;
+  const wins = [[Math.round(vw * 0.06), Math.round(vw * 0.45)], [Math.round(vw * 0.55), Math.round(vw * 0.94)]];
+  const oy = rock;
+  ctx.fillStyle = wall;
+  ctx.fillRect(0, 0, vw, wy0 + oy);
+  ctx.fillRect(0, wy1 + oy, vw, vh - wy1);
+  ctx.fillRect(0, 0, wins[0][0], vh);
+  ctx.fillRect(wins[0][1], 0, wins[1][0] - wins[0][1], vh);
+  ctx.fillRect(wins[1][1], 0, vw - wins[1][1], vh);
+  for (const [a, b] of wins) {
+    for (let k = 0; k < 5; k++) { const cut = [5, 3, 2, 1, 1][k]; ctx.fillRect(a, wy0 + oy + k, cut, 1); ctx.fillRect(b - cut, wy0 + oy + k, cut, 1); ctx.fillRect(a, wy1 + oy - 1 - k, cut, 1); ctx.fillRect(b - cut, wy1 + oy - 1 - k, cut, 1); }
+    ctx.fillStyle = '#4a4f58';
+    ctx.fillRect(a - 2, wy0 + oy - 2, b - a + 4, 2); ctx.fillRect(a - 2, wy1 + oy, b - a + 4, 3); ctx.fillRect(a - 2, wy0 + oy, 2, wy1 - wy0); ctx.fillRect(b, wy0 + oy, 2, wy1 - wy0);
+    ctx.fillStyle = 'rgba(255,255,255,0.10)'; ctx.fillRect(a + 6, wy0 + oy + 3, 10, wy1 - wy0 - 8);
+    ctx.fillStyle = wall;
+  }
+  // Ceiling with lights, the line stripe, a route map over the windows.
+  ctx.fillStyle = '#eef0f3'; ctx.fillRect(0, 0, vw, Math.round(vh * 0.05));
+  ctx.fillStyle = '#ffffff'; for (let x = 20; x < vw; x += 90) ctx.fillRect(x, 2, 50, 3);
+  ctx.fillStyle = accent; ctx.fillRect(0, wy0 + oy - 7, vw, 3);
+  const strip = { x0: wins[0][0] + 6, x1: wins[1][1] - 6, y: Math.round(vh * 0.19) };
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(strip.x0 - 6, strip.y - 8, strip.x1 - strip.x0 + 12, 17);
+  ctx.fillStyle = L.col; ctx.fillRect(strip.x0, strip.y, strip.x1 - strip.x0, 3);
+  // A grab pole between the windows and handles hanging from the rail.
+  const poleX = Math.round((wins[0][1] + wins[1][0]) / 2);
+  ctx.fillStyle = '#8a9099'; ctx.fillRect(poleX - 2, Math.round(vh * 0.05), 5, vh);
+  ctx.fillStyle = '#d9dee4'; ctx.fillRect(poleX - 1, Math.round(vh * 0.05), 1, vh);
+  ctx.fillStyle = '#8a9099'; ctx.fillRect(0, wy0 + oy - 3, vw, 2);
+  const sway = (R.speed > 2 ? Math.sin(BL.t * 3) * 0.25 : 0) + (R.t < 1 ? -0.25 * (1 - R.t) : 0);
+  for (let x = 30; x < vw - 20; x += 44) {
+    const a = sway + Math.sin(x) * 0.05;
+    const len = 18;
+    const hx = Math.round(x + Math.sin(a) * len), hy = Math.round(wy0 + oy - 2 + Math.cos(a) * len);
+    pixLine(ctx, [x, wy0 + oy - 2], [hx, hy], '#5d6370');
+    ctx.fillStyle = '#f0c419';
+    ctx.fillRect(hx - 3, hy, 7, 2); ctx.fillRect(hx - 3, hy + 2, 2, 5); ctx.fillRect(hx + 2, hy + 2, 2, 5); ctx.fillRect(hx - 3, hy + 7, 7, 2);
+  }
+  // Seats under the windows.
+  const seatY = Math.round(vh * 0.74);
+  for (const [a, b] of wins) {
+    ctx.fillStyle = '#2b2220'; ctx.fillRect(a - 2, seatY - 2, b - a + 4, vh * 0.16 + 4);
+    ctx.fillStyle = shade(accent, -0.15); ctx.fillRect(a, seatY, b - a, Math.round(vh * 0.16));
+    ctx.fillStyle = accent; for (let x = a; x < b - 6; x += 26) ctx.fillRect(x + 2, seatY + 2, Math.min(22, b - x - 4), Math.round(vh * 0.16) - 4);
+  }
+  ctx.fillStyle = '#9aa0a8'; ctx.fillRect(0, Math.round(vh * 0.92), vw, vh);
+  // Ser Biscuit at the left window, paws on the sill; a passenger reading.
+  const kx = wins[0][0] + 50, ky = wy1 + oy + 26;
+  ctx.drawImage(SPR.kitten.idle.img[0], kx - 12, ky - 31);
+  ctx.save();
+  ctx.translate(wins[1][1] - 70, seatY + 6);
+  ctx.scale(2, 2);
+  drawPerson(0, 0, { skin: '#c48a5c', hair: '#2b2220', top: '#5b8ee0', bottom: '#2b2a33', facing: -1 }, true);
+  ctx.fillStyle = '#f4f1ea'; ctx.fillRect(-6, -9, 5, 4);
+  ctx.restore();
+  // The LED board over the pole.
+  const led = { x: poleX - 60, y: Math.round(vh * 0.104), w: 120, h: 12 };
+  ctx.fillStyle = '#1d1816'; ctx.fillRect(led.x - 1, led.y - 1, led.w + 2, led.h + 2);
+  ctx.fillStyle = '#2b1a10'; ctx.fillRect(led.x, led.y, led.w, led.h);
+  R.layout = { led, strip, stops: rideStops(seg), seg };
 }
 
 // ---------------------------------------------------------------------------
@@ -2602,23 +2957,39 @@ function rideUI() {
   const left = auto ? 0 : R.segs.length - R.seg - (R.phase === 'dwell' ? 1 : 0);
   const stopsLeft = left > 0 ? `${left} stop${left === 1 ? '' : 's'} to go` : 'Arriving';
   const z = canvas.width / W;
-  // From the air: landmarks and stations named where they are, and a marker over your ride.
-  const c = BL.cam, zz = c.zoom, sx = wx => (wx - c.x) / zz, sy = wy => (wy - c.y) / zz;
-  const placed = [];
-  const label = (text, x, y, size, color) => {
-    const w = uwidth(text, size);
-    if (x < -w || x > W + w || y < 26 || y > H - 30) return;
-    if (placed.some(([l, t, r2, b]) => x - w / 2 < r2 && x + w / 2 > l && y < b && y + size * 1.3 > t)) return;
-    placed.push([x - w / 2 - 2, y, x + w / 2 + 2, y + size * 1.3]);
-    cut(text, x, y, { size, color, align: 'center' });
-  };
-  if (R.mark) {
-    const mx = sx(R.mark.x), my = sy(R.mark.y) + Math.sin(BL.t * 5) * 1.5;
-    drawArrow(mx, my - 4, Math.PI / 2);
-    label(rideFocus().under ? 'You (underground)' : 'You', mx, my - 17, 4.6, '#ffd25e');
+  // Landmarks named on the skyline, and station name boards on the platforms.
+  for (const lb of R.labels || []) if (lb.x > -40 && lb.x < canvas.width + 40) cut(lb.text, lb.x / z, Math.max(32, lb.y / z - 5), { size: 4.6, color: '#ffffff', align: 'center' });
+  for (const b of R.boards || []) if (b.x > -40 && b.x < canvas.width + 40) cut(b.text, b.x / z, b.y / z - 2.6, { size: 5, color: b.color, align: 'center', outline: null });
+  const Lay = R.layout;
+  if (Lay) {
+    // LED board: the next station, scrolling.
+    const msg = R.phase === 'dwell' ? seg.toName : `Next station: ${seg.toName}   ${stopsLeft}   ${rideName}`;
+    const lx = Lay.led.x / z, ly = Lay.led.y / z, lw = Lay.led.w / z;
+    uctx.save();
+    uctx.beginPath(); uctx.rect(lx, ly, lw, Lay.led.h / z); uctx.clip();
+    const tw = uwidth(msg, 4.6);
+    const tx = tw < lw - 4 ? lx + (lw - tw) / 2 : lx + lw - ((BL.t * 22) % (tw + lw));
+    cut(msg, tx, ly + 0.6, { size: 4.6, color: '#ff9a3a', outline: null });
+    uctx.restore();
+    // Route strip over the windows, with where we are.
+    if (Lay.stops.length) {
+      const all = Lay.stops, a0 = all[0].along, a1 = all[all.length - 1].along;
+      const X = v => (Lay.strip.x0 + (v - a0) / (a1 - a0) * (Lay.strip.x1 - Lay.strip.x0)) / z;
+      const y = Lay.strip.y / z;
+      // Names for the ends, the interchanges and the next stop, where they fit.
+      const used = [];
+      const named = all.map((st, i) => ({ st, i, x: X(st.along), w: uwidth(st.name, 2.8), rank: st.name === seg.toName ? 0 : i === 0 || i === all.length - 1 ? 1 : st.change ? 2 : all.length < 8 ? 3 : 9 }));
+      for (const n of named) { urect(n.x - 1.2, y - 0.6, 2.4, 2.4, '#1d1816'); urect(n.x - 0.8, y - 0.2, 1.6, 1.6, n.st.change ? '#ffd25e' : '#ffffff'); }
+      for (const n of named.filter(o => o.rank < 9).sort((a, b) => a.rank - b.rank)) {
+        const x = clamp(n.x, Lay.strip.x0 / z + n.w / 2, Lay.strip.x1 / z - n.w / 2);
+        if (used.some(([l, r]) => x - n.w / 2 < r + 2 && x + n.w / 2 > l - 2)) continue;
+        used.push([x - n.w / 2, x + n.w / 2]);
+        cut(n.st.name, x, y - 4.6, { size: 2.8, color: n.rank === 0 ? '#1d1816' : '#3a3530', align: 'center', outline: null });
+      }
+      const mx = X(R.s);
+      urect(mx - 1.5, y - 1, 3, 3, Math.sin(BL.t * 8) > 0 ? '#ff5a5a' : '#ffd25e');
+    }
   }
-  for (const st of Object.values(B_STATIONS)) if (bOnScreen(st.x, st.y, 0)) label(st.name, sx(st.x), sy(st.y) + 3, 4, '#d8d0c2');
-  for (const pc of B_POSTCARDS) if (!pc.ride && bOnScreen(pc.x, pc.y, 0)) label(pc.name, sx(pc.x), sy(pc.y) - 14, 4.6, '#ffffff');
   band(0, 14, 0.55);
   urect(0, 13, W, 1, col);
   cut(`${rideName}  >  ${auto ? seg.toName : B_STATIONS[R.to].name}`, 6, 3.5, { size: 6, color: light });
@@ -2631,9 +3002,14 @@ function rideUI() {
     ubox(mx, my, mw, 12, '#1d1816', '#f0c419');
     cut(`${km.toFixed(1)} km`, W / 2, my + 2.2, { size: 5.5, color: '#ff9a3a', align: 'center', outline: null });
   } else {
-    // Where the train is, and how to hurry it.
-    cut(R.phase === 'dwell' ? `At ${seg.toName}` : `Next: ${seg.toName}`, 6, 16, { size: 5, color: '#ffffff' });
-    cut(stopsLeft, 6, 23, { size: 4.4, color: '#d8d0c2' });
+    const next = B_RIDE_VIEW_NAMES[B_RIDE_VIEWS[(B_RIDE_VIEWS.indexOf(R.view) + 1) % B_RIDE_VIEWS.length]];
+    if (input.mode === 'keys') keyHint('V', next, W - 6 - cw, 4, 'right');
+    else cut(input.mode === 'pad' ? `LB: ${next}` : `VIEW: ${next}`, W - 6 - cw, 4.5, { size: 4.4, color: '#d8d0c2', align: 'right' });
+    // Where the train is (the window view has its LED board for this), and how to hurry it.
+    if (!R.layout) {
+      cut(R.phase === 'dwell' ? `At ${seg.toName}` : `Next: ${seg.toName}`, 6, 16, { size: 5, color: '#ffffff' });
+      cut(stopsLeft, 6, 23, { size: 4.4, color: '#d8d0c2' });
+    }
     if (!R.fast) {
       const key = input.mode === 'touch' ? 'DASH' : input.mode === 'pad' ? 'B' : 'L';
       if (input.mode === 'keys') keyHint(key, 'Hold to hurry', W - 6, 16, 'right');

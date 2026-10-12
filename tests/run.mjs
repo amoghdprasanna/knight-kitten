@@ -440,11 +440,15 @@ async function suiteShots(browser) {
     { name: 'map-zoomed', pc: 'cubbon', extra: 'map-zoom' },
     { name: 'metro-picker', st: 'majestic', extra: 'pick' },
     { name: 'metro-ride', st: 'mgroad', extra: 'ride', to: ['purple', 'indiranagar'] },
-    { name: 'green-aerial', st: 'rajajinagar', extra: 'ride', rideView: 'skyline', to: ['green', 'yeshwanthpur'], ticks: 150 },
+    { name: 'metro-outside', st: 'mgroad', extra: 'ride', rideView: 'outside', to: ['purple', 'indiranagar'] },
+    { name: 'metro-skyline', st: 'mgroad', extra: 'ride', rideView: 'skyline', to: ['purple', 'indiranagar'] },
+    { name: 'green-skyline', st: 'rajajinagar', extra: 'ride', rideView: 'skyline', to: ['green', 'yeshwanthpur'], ticks: 150 },
     { name: 'purple-west-window', st: 'magadi', extra: 'ride', to: ['purple', 'mysoreroad'] },
     { name: 'metro-underground', st: 'majestic', extra: 'ride', to: ['purple', 'vidhana'] },
+    { name: 'metro-underground-outside', st: 'majestic', extra: 'ride', rideView: 'outside', to: ['purple', 'vidhana'] },
     { name: 'yellow-line', st: 'rvroad', extra: 'ride', to: ['yellow', 'silkboard'] },
-    { name: 'stadium-from-metro', st: 'mgroad', extra: 'ride', to: ['purple', 'trinity'], ticks: 20 },
+    { name: 'stadium-skyline', st: 'mgroad', extra: 'ride', rideView: 'skyline', to: ['purple', 'cubbon'], ticks: 30 },
+    { name: 'stadium-from-metro', st: 'mgroad', extra: 'ride', rideView: 'outside', to: ['purple', 'cubbon'], ticks: 30 },
     { name: 'auto-ride', pc: 'brigade', extra: 'auto' },
     { name: 'title' },
   ];
@@ -463,6 +467,7 @@ async function suiteShots(browser) {
         if (sc.extra === 'map') openCityMap();
         if (sc.extra === 'map-zoom') { openCityMap(); BL.mapZoom = 4.4; }
         if (sc.extra === 'pick') openRidePicker(B_STATIONS[sc.st]);
+        BL.rideView = sc.rideView || 'window';
         if (sc.extra === 'train') { BL.train = { x: B_TRAIN_STOP, dir: 1, state: 'dwell', t: 99, v: 0 }; }
         if (sc.to) {
           openRidePicker(B_STATIONS[sc.st]);
