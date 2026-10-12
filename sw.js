@@ -1,5 +1,5 @@
 // Caches the game so it keeps working offline once installed.
-const CACHE = 'knight-kitten-v6';
+const CACHE = 'knight-kitten-v7';
 const FILES = [
   './', 'index.html', 'manifest.webmanifest', 'vendor/matter.min.js',
   'sprites.js', 'ui.js', 'input.js', 'audio.js', 'core.js', 'world.js', 'arena.js', 'modes.js', 'journey.js', 'city-data.js', 'city-art.js', 'city.js', 'main.js',
@@ -17,10 +17,12 @@ self.addEventListener('activate', e => {
 });
 
 // Network first so updates show up, falling back to the cache when offline.
+// `no-cache` makes the browser check with the server each time instead of
+// reusing its own copy for ten minutes, so a new version shows up at once.
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: 'no-cache' })
       .then(res => {
         const copy = res.clone();
         caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {});
