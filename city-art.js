@@ -150,8 +150,346 @@ function b3dCanvas(w, h, ox, oy, fn) {
         if (onion) { r(line, Math.round(cx) - 1, Math.round(cy - h) - 4, 3, 4); r(ramp[ramp.length - 2], Math.round(cx), Math.round(cy - h) - 4, 1, 3); }
         return [cx, cy - h];
       },
+      // Any front profile pushed back d deep: inside(u, v) says which pixels of
+      // the w x h front are solid (u along the facade, v up from the base).
+      // Back slices show as the top and right faces, the front gets an outline.
+      prism(x, y, z, w, h, d, inside, col) {
+        const at = (u, v) => u >= 0 && v >= 0 && u < w && v < h && inside(u, v);
+        for (let t = d; t >= 0; t--) {
+          for (let v = 0; v < h; v++) for (let u = 0; u < w; u++) {
+            if (!at(u, v)) continue;
+            const [sx, sy] = P(x + u, y + t, z + v);
+            let cl;
+            if (t === 0) cl = !at(u - 1, v) || !at(u + 1, v) || !at(u, v + 1) || !at(u, v - 1) ? col.line || '#3a2a1a' : col.front;
+            else cl = !at(u, v + 1) ? (t === d ? col.line || '#3a2a1a' : col.top) : !at(u + 1, v) && t === d ? col.line || '#3a2a1a' : col.side;
+            r(cl, Math.round(sx), Math.round(sy), 1, 1);
+          }
+        }
+      },
+      // A face on the right-hand side wall at x, from depth y0..y1 and height z0..z1.
+      sideRect(x, y0, y1, z0, z1, col) { polyFill(c, [P(x, y0, z0), P(x, y1, z0), P(x, y1, z1), P(x, y0, z1)], col); },
     };
+    bKit(g);
     fn(g);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// The furniture of a Bengaluru roof and facade, added to the 3D kit: black
+// plastic water tanks on stands, stair rooms, dish antennas, hoardings and
+// washing lines up top; windows with grilles and concrete sunshades (chajjas),
+// balconies with potted plants below.
+// ---------------------------------------------------------------------------
+const TANK = ['#0c0c0e', '#18181c', '#25252b', '#34343c', '#4a4a54'];
+
+function bKit(g) {
+  const { r, P } = g;
+  const R = Math.round;
+  const O = '#3a3530';
+  g.tank = (x, y, z, rad = 3, h = 6) => {
+    g.box(x - rad - 1, y - 1, z, rad * 2 + 3, 3, 1, { front: '#8a8f96', top: '#b9bec2', side: '#6e7378', line: O });
+    g.cyl(x, y, z + 1, rad, h, TANK, '#0a0a0c');
+    const [cx, cy] = P(x, y, z + 1);
+    const X = R(cx), Y = R(cy);
+    for (const j of [2, 4]) if (j < h - 1) r(TANK[3], X - rad, Y - j, rad * 2 + 1, 1);
+    r('#0a0a0c', X - rad, Y - h, rad * 2 + 1, 1);
+    r('#4a4a54', X - rad + 1, Y - h + 1, rad * 2 - 1, 1);
+    r('#6a6a76', X - 1, Y - h - 1, 3, 1);
+  };
+  g.stairRoom = (x, y, z, w, d, h, wall) => {
+    const f = g.box(x, y, z, w, d, h, { front: wall, top: shade(wall, 0.25), side: shade(wall, -0.3), line: O });
+    r('#2b2620', f.x + 2, f.y + 3, Math.min(4, f.w - 4), f.h - 3);
+    return f;
+  };
+  g.dish = (x, y, z) => {
+    const [sx, sy] = P(x, y, z);
+    const X = R(sx), Y = R(sy);
+    r('#5d6369', X, Y - 4, 1, 4);
+    r(O, X - 3, Y - 8, 6, 4); r('#eef0f2', X - 2, Y - 7, 4, 2); r('#b9bec2', X - 2, Y - 5, 4, 1); r(O, X + 2, Y - 9, 1, 1);
+  };
+  g.acUnit = (x, y, z) => {
+    const f = g.box(x, y, z, 6, 4, 4, { front: '#d9dee2', top: '#f2f4f5', side: '#a3a9ae', line: O });
+    r('#5d6369', f.x + 2, f.y + 1, 3, 2);
+  };
+  g.washing = (x0, x1, y, z, rnd) => {
+    const a = P(x0, y, z), b = P(x1, y, z);
+    r('#5d6369', R(a[0]), R(a[1]) - 8, 1, 8); r('#5d6369', R(b[0]), R(b[1]) - 8, 1, 8);
+    const cols = ['#d8433b', '#f2c94c', '#5b8ee0', '#f4f1ea', '#7cc35a', '#c3a0ec', '#ee8b3a'];
+    for (let x = R(a[0]) + 1; x < R(b[0]); x++) {
+      const y0 = R(a[1] + (b[1] - a[1]) * (x - a[0]) / Math.max(1, b[0] - a[0])) - 7;
+      r('#8a8f96', x, y0, 1, 1);
+      if ((x + R(a[0])) % 4 < 2) r(cols[Math.floor(rnd() * cols.length)], x, y0 + 1, 1, 2 + Math.floor(rnd() * 2));
+    }
+  };
+  // A rooftop hoarding on two legs; returns its board, ready for a picture.
+  g.hoarding = (x, y, z, w, h) => {
+    for (const px of [x + 3, x + w - 4]) { const [sx, sy] = P(px, y, z); r('#4a4740', R(sx), R(sy) - 6, 1, 6); }
+    return g.box(x, y, z + 6, w, 1, h, { front: '#f4f1ea', top: '#c9c2b6', side: '#8a857a', line: '#2b2620' });
+  };
+  // A window with a frame, a grille and a concrete sunshade over it.
+  g.win = (x, y, w, h, wall, glass = '#5f87a6', grille = true) => {
+    r(O, x - 1, y - 1, w + 2, h + 2); r(glass, x, y, w, h); r(shade(glass, 0.35), x, y, 1, h); r(shade(glass, -0.25), x, y + h - 1, w, 1);
+    if (grille) for (let gx = x + 2; gx < x + w - 1; gx += 3) r(shade(glass, -0.45), gx, y, 1, h - 1);
+    r(shade(wall, 0.3), x - 2, y - 3, w + 4, 1); r(shade(wall, -0.35), x - 2, y - 2, w + 4, 1);
+  };
+  // A balcony railing across x..x+w at screen row y, with pots on the ledge.
+  g.balcony = (x, y, w, rnd) => {
+    r(O, x, y, w, 1); r(O, x, y + 4, w, 1);
+    for (let bx = x; bx < x + w; bx += 2) r(O, bx, y + 1, 1, 3);
+    for (let k = 0; k < 2; k++) if (rnd() < 0.7) { const px = x + 2 + Math.floor(rnd() * (w - 5)); r('#b5573a', px, y - 2, 3, 2); r('#4f8a3c', px - 1, y - 4, 5, 2); r('#7cc35a', px, y - 5, 2, 1); }
+  };
+  // A pitched tile roof over x..x+w, y..y+d from height z, ridge h higher,
+  // running along the facade with its gable end on the right.
+  g.roof = (x, y, z, w, d, h, tile = '#b5553a', line = O) => {
+    const a = P(x, y, z), b = P(x + w, y, z), c2 = P(x + w, y + d / 2, z + h), d2 = P(x, y + d / 2, z + h), e = P(x + w, y + d, z);
+    polyFill(g.c, [b, e, c2], shade(tile, -0.3));
+    polyFill(g.c, [a, b, c2, d2], tile);
+    for (let k = 1; k < 8; k++) { const t = k / 8; pixLine(g.c, [a[0] + (d2[0] - a[0]) * t, a[1] + (d2[1] - a[1]) * t], [b[0] + (c2[0] - b[0]) * t, b[1] + (c2[1] - b[1]) * t], shade(tile, -0.18)); }
+    pixLine(g.c, a, b, line); pixLine(g.c, d2, c2, line); pixLine(g.c, a, d2, line); pixLine(g.c, b, c2, line); pixLine(g.c, c2, e, line); pixLine(g.c, b, e, line);
+  };
+  // Gold pot finials (kalashas) in a row on a ridge.
+  g.kalashas = (x0, x1, y, z, n) => {
+    for (let i = 0; i < n; i++) {
+      const [sx, sy] = P(x0 + (x1 - x0) * (n === 1 ? 0.5 : i / (n - 1)), y, z);
+      const X = R(sx), Y = R(sy);
+      r('#4a3410', X - 2, Y - 4, 5, 4); r('#d4a83a', X - 1, Y - 3, 3, 3); r('#fff0a8', X - 1, Y - 3, 1, 1); r('#4a3410', X, Y - 6, 1, 2);
+    }
+  };
+  // A Dravidian gateway tower (gopuram): tapering tiers of niches and
+  // miniature shrines under a wagon-vault roof with a row of kalashas.
+  g.gopuram = (cx, cy, z, w, d, tiers, pal, rnd = null) => {
+    let ww = w, dd = d, zz = z;
+    const figs = ['#d8433b', '#2f6db0', '#f2c94c', '#2f8a3a', '#ee8b3a', '#c3a0ec'];
+    for (let k = 0; k < tiers; k++) {
+      const th = k === 0 ? 11 : 8;
+      const f = g.box(cx - ww / 2, cy - dd / 2, zz, ww, dd, th, pal);
+      r(pal.line, f.x + 1, f.y + 2, f.w - 1, 1);
+      for (let x = f.x + 2; x < f.x + f.w - 2; x += 4) {
+        r(shade(pal.front, -0.22), x, f.y + 3, 2, f.h - 4);
+        if (rnd) r(figs[Math.floor(rnd() * figs.length)], x, f.y + 4, 2, 2);
+      }
+      for (let x = f.x + 1; x < f.x + f.w; x += Math.max(4, Math.round(ww / 5))) { r(pal.line, x, f.y - 2, 3, 2); r(pal.top, x + 1, f.y - 2, 1, 1); }
+      zz += th; ww = Math.max(8, ww - 5); dd = Math.max(4, dd - 1);
+    }
+    const vw = ww + 4, vh = 8;
+    g.prism(cx - vw / 2, cy - dd / 2, zz, vw, vh, dd, (u, v) => {
+      const e = Math.min(u, vw - 1 - u);
+      return e >= 3 || v < 4 + e;
+    }, { front: pal.front, top: pal.top, side: pal.side, line: pal.line });
+    g.kalashas(cx - vw / 2 + 3, cx + vw / 2 - 3, cy - dd / 2 + 1, zz + vh, Math.max(3, Math.round(vw / 6)));
+    return zz + vh;
+  };
+  // A temple tower over the sanctum (vimana): square tiers and a dome on top.
+  g.vimana = (cx, cy, z, w, tiers, pal) => {
+    let ww = w, zz = z;
+    for (let k = 0; k < tiers; k++) {
+      const th = k === 0 ? 9 : 6;
+      const f = g.box(cx - ww / 2, cy - ww / 2, zz, ww, ww, th, pal);
+      for (let x = f.x + 2; x < f.x + f.w - 1; x += 4) r(shade(pal.front, -0.22), x, f.y + 2, 2, f.h - 3);
+      for (const kx of [0, 0.5, 1]) { const [sx, sy] = P(cx - ww / 2 + 1 + (ww - 3) * kx, cy - ww / 2, zz + th); r(pal.line, R(sx) - 1, R(sy) - 3, 3, 3); r(pal.top, R(sx), R(sy) - 2, 1, 2); }
+      zz += th; ww = Math.max(6, ww - 6);
+    }
+    const ramp = [pal.line, shade(pal.side, -0.2), pal.side, pal.front, pal.top, shade(pal.top, 0.4)];
+    const [tx, ty] = g.dome(cx, cy, zz, Math.round(ww / 2) + 2, Math.round(ww / 2) + 3, ramp, 0.5, pal.line);
+    r('#4a3410', R(tx) - 2, R(ty) - 6, 5, 6); r('#d4a83a', R(tx) - 1, R(ty) - 5, 3, 4); r('#fff0a8', R(tx) - 1, R(ty) - 5, 1, 1); r('#4a3410', R(tx), R(ty) - 8, 1, 2);
+  };
+}
+
+// Runs a sprite builder that reports where its name board is, and keeps that
+// as the sprite's `sign` anchor (x, y of the board's centre, w its width).
+function bSigned(build) {
+  let at = null;
+  const img = build(a => { at = a; });
+  img.anchors = { ...(img.anchors || {}), sign: { ...at, y: at.y - img.trim } };
+  return img;
+}
+
+// A canvas for a block w wide, d deep and h tall with `top` pixels of rooftop
+// clutter above it. The front of the block spans x = 1..w+1 of the image.
+function b3dBlock(w, d, h, top, fn) {
+  const dx = Math.ceil(d * OB.SX) + 3, dy = Math.ceil(d * OB.SY);
+  const H0 = h + dy + top + 2;
+  const img = bTrimTop(b3dCanvas(w + dx + 3, H0, 1, H0 - 2, fn));
+  img.fw = w + 2;
+  return img;
+}
+
+// Drops empty rows above a sprite, so its height is the height of the picture.
+// Anchors found while drawing are moved up by `trim`.
+function bTrimTop(cv) {
+  const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+  let t = 0;
+  rows: for (; t < cv.height - 1; t++) for (let x = 0; x < cv.width; x++) if (d[(t * cv.width + x) * 4 + 3]) break rows;
+  if (!t) { cv.trim = 0; return cv; }
+  const out = document.createElement('canvas');
+  out.width = cv.width; out.height = cv.height - t;
+  out.getContext('2d').drawImage(cv, 0, -t);
+  out.trim = t;
+  return out;
+}
+
+// A shophouse: a shop on the ground floor under its signboard, homes above,
+// tanks and washing on the roof. `style` is bazaar (old city markets),
+// street (glass shop fronts on MG Road, Indiranagar, Koramangala) or lodge.
+function bShopHouse(wall, board, awning, seed, style = 'bazaar') {
+  const rnd = seeded(seed * 131 + 17);
+  const W0 = 58, D = 22, GF = 23, SB = 9, FH = 14;
+  const floors = style === 'street' ? 1 + (seed % 2) : 1 + Math.floor(rnd() * 2.8);
+  const H = GF + SB + floors * FH + 2;
+  let sign = null;
+  const img = b3dBlock(W0, D, H, 24, g => {
+    const { r } = g;
+    const O = '#3a3530', dk = shade(wall, -0.2);
+    const f = g.box(0, 0, 0, W0, D, H, { front: wall, top: shade(wall, 0.3), side: shade(wall, -0.32), line: O });
+    const Z = z => f.y + f.h - z;
+    for (let k = 0; k < floors; k++) {
+      const z = GF + SB + k * FH + 4;
+      g.sideRect(W0, 6, 15, z, z + 7, O); g.sideRect(W0, 7, 14, z + 1, z + 6, '#4f6f8a');
+    }
+    r(dk, f.x + 1, Z(2), f.w - 1, 2);
+    const gx = f.x + 2, gw = f.w - 3, top = Z(GF - 2), gh = GF - 4;
+    if (style === 'street') {
+      // Glass shop front: big panes with reflections, a door, things on display.
+      r(O, gx, top, gw, gh); r('#9cc4dc', gx + 1, top + 1, gw - 2, gh - 1);
+      for (let k = 0; k < gw + gh; k += 9) for (let i = 0; i < 3; i++) { const x = gx + 1 + k - i, y = top + 1 + i; if (x > gx && x < gx + gw - 1) r('#d8eef6', x, y, 1, Math.min(gh - 1 - i, 3)); }
+      for (let x = gx + 14; x < gx + gw - 1; x += 14) r(O, x, top, 1, gh);
+      r('#ffd98a', gx + 2, top + gh - 6, gw - 4, 1);
+      for (let x = gx + 3; x < gx + gw - 4; x += 5) r(['#d8433b', '#2f6db0', '#f2c94c', '#2f8a3a', '#c3a0ec'][Math.floor(rnd() * 5)], x, top + gh - 9, 3, 3);
+      r(O, gx + gw / 2 - 4, top + 3, 9, gh - 3); r('#2b3a48', gx + gw / 2 - 3, top + 4, 7, gh - 4); r('#ffd98a', gx + gw / 2 + 2, top + 10, 1, 2);
+    } else {
+      // Two bays with their rolling shutters pulled up and the goods spilling out.
+      const goods = style === 'lodge' ? null : [board, awning, '#f2c94c', '#d8433b', '#5b8ee0', '#7cc35a', '#f4a3b8'];
+      for (const [bx, bw] of [[gx, 26], [gx + 28, gw - 28]]) {
+        r(O, bx, top, bw, gh);
+        r('#2b2620', bx + 1, top + 4, bw - 2, gh - 4);
+        for (let k = 0; k < 3; k++) r(k % 2 ? '#8a8f96' : '#c4c9cc', bx + 1, top + 1 + k, bw - 2, 1);
+        if (goods) {
+          for (let x = bx + 2; x < bx + bw - 2; x += 3) r(goods[Math.floor(rnd() * goods.length)], x, top + 4, 2, 5 + Math.floor(rnd() * 4));
+          r('#8a5a3a', bx + 1, top + gh - 5, bw - 2, 4); r('#b5824a', bx + 1, top + gh - 5, bw - 2, 1);
+          for (let x = bx + 2; x < bx + bw - 3; x += 2) if (rnd() < 0.7) r(goods[Math.floor(rnd() * goods.length)], x, top + gh - 7, 2, 2);
+        } else {
+          r('#ffd98a', bx + 3, top + 6, bw - 6, gh - 7); r('#8a5a3a', bx + 4, top + gh - 6, bw - 8, 3); r('#2b2620', bx + bw / 2 - 1, top + 6, 2, gh - 7);
+        }
+      }
+    }
+    // A striped awning, then the signboard (its words are drawn on the UI layer).
+    for (let x = f.x; x <= f.x + f.w; x++) r(((x - f.x) >> 2) % 2 ? awning : '#fbf7ee', x, Z(GF) - 1, 1, 3);
+    r(shade(awning, -0.35), f.x, Z(GF) + 2, f.w + 1, 1);
+    const sy = Z(GF + SB) + 1;
+    r(O, f.x + 2, sy, f.w - 3, SB - 1); r(board, f.x + 3, sy + 1, f.w - 5, SB - 3); r(shade(board, 0.3), f.x + 3, sy + 1, f.w - 5, 1);
+    sign = { x: f.x + f.w / 2, y: sy + (SB - 1) / 2, w: f.w - 7 };
+    // Homes above: windows with grilles and sunshades, sometimes a balcony.
+    for (let k = 0; k < floors; k++) {
+      const zb = GF + SB + k * FH;
+      r(dk, f.x + 1, Z(zb + 1), f.w - 1, 1);
+      if (rnd() < 0.45) {
+        for (const wx of [8, 36]) g.win(f.x + wx, Z(zb + FH - 2), 14, 8, wall, '#5f87a6', false);
+        g.balcony(f.x + 3, Z(zb + 5), f.w - 5, rnd);
+      } else for (const wx of [5, 24, 43]) g.win(f.x + wx, Z(zb + FH - 3), 10, 7, wall);
+    }
+    // The roof.
+    const tx = 8 + Math.floor(rnd() * 20);
+    if (rnd() < 0.5) g.stairRoom(W0 - 20, 9, H, 13, 10, 9, shade(wall, 0.15));
+    else if (style === 'street' || rnd() < 0.3) {
+      const hb = g.hoarding(W0 - 30, 14, H, 26, 10);
+      r(['#d8433b', '#2f6db0', '#2f8a3a', '#ee8b3a'][seed % 4], hb.x + 2, hb.y + 2, hb.w - 3, hb.h - 4);
+      r('#ffffff', hb.x + 4, hb.y + 4, 10, 2); r('#f2c94c', hb.x + 17, hb.y + 3, 5, 5);
+    }
+    g.tank(tx, 13, H, 3, 6);
+    if (rnd() < 0.5) g.tank(tx + 9, 14, H, 2, 5);
+    if (rnd() < 0.5) g.washing(4, 26, 4, H, rnd);
+    else if (rnd() < 0.6) g.dish(W0 - 8, 4, H);
+  });
+  img.anchors = { sign: { ...sign, y: sign.y - img.trim } };
+  return img;
+}
+
+// An apartment block on stilts: parked scooters below, balconies with plants
+// and washing on every floor, a row of tanks and the lift room on the roof.
+function bApartment3D(wall, seed) {
+  const rnd = seeded(seed * 41 + 3);
+  const W0 = 62, D = 30, FH = 13, GF = 12, floors = 5 + (seed % 2);
+  const H = GF + floors * FH + 3;
+  return b3dBlock(W0, D, H, 20, g => {
+    const { r } = g;
+    const O = '#3a302b', dk = shade(wall, -0.18);
+    const f = g.box(0, 0, 0, W0, D, H, { front: wall, top: shade(wall, 0.3), side: shade(wall, -0.3), line: O });
+    const Z = z => f.y + f.h - z;
+    for (let k = 0; k < floors; k++) for (const yy of [5, 18]) { const z = GF + k * FH + 4; g.sideRect(W0, yy, yy + 7, z, z + 6, O); g.sideRect(W0, yy + 1, yy + 6, z + 1, z + 5, '#5f87a6'); }
+    // Stilt parking.
+    r('#2b2620', f.x + 1, Z(GF - 1), f.w - 1, GF - 1);
+    for (let x = f.x + 1; x < f.x + f.w; x += 15) r(dk, x, Z(GF - 1), 3, GF - 1);
+    for (let i = 0; i < 6; i++) { const x = f.x + 5 + i * 9 + Math.floor(rnd() * 3); r(['#d8433b', '#5b8ee0', '#f2c94c', '#f4f1ea', '#2f8a3a'][Math.floor(rnd() * 5)], x, Z(4), 5, 2); r('#1d1816', x, Z(2), 2, 2); r('#1d1816', x + 4, Z(2), 2, 2); }
+    // Floors: three bays each, balconies and windows alternating.
+    for (let k = 0; k < floors; k++) {
+      const zb = GF + k * FH;
+      r(dk, f.x + 1, Z(zb + 1), f.w - 1, 2);
+      for (let b = 0; b < 3; b++) {
+        const bx = f.x + 3 + b * 20;
+        if ((b + k) % 2 === 0) {
+          r('#3a4a58', bx + 2, Z(zb + FH - 2), 14, 9); r('#5f87a6', bx + 3, Z(zb + FH - 3), 5, 7);
+          g.balcony(bx, Z(zb + 6), 18, rnd);
+          if (rnd() < 0.5) for (let x = bx + 2; x < bx + 16; x += 3) r(['#d8433b', '#f2c94c', '#f4f1ea', '#5b8ee0'][Math.floor(rnd() * 4)], x, Z(zb + FH - 3), 2, 3);
+        } else g.win(bx + 3, Z(zb + FH - 3), 12, 7, wall);
+      }
+    }
+    // The roof: tanks in a row, the lift room, a dish.
+    g.stairRoom(W0 - 22, 12, H, 16, 14, 11, shade(wall, 0.1));
+    for (let i = 0; i < 3; i++) g.tank(8 + i * 10, 18, H, 3, 7);
+    if (seed % 2) g.dish(6, 6, H); else g.washing(4, 30, 6, H, rnd);
+  });
+}
+
+// A Jayanagar house: compound wall and gate in front, two floors with a
+// balcony, a black tank and pots on the terrace.
+function bHouseJ3D(seed) {
+  const rnd = seeded(seed * 97 + 11);
+  const pk = a => a[Math.floor(rnd() * a.length)];
+  const wall = pk(['#f3e3c3', '#f2c9a8', '#cfe3d0', '#d8cfe8', '#f5e08a', '#bfd8e8', '#f0b9a0']);
+  const door = pk(['#7a4a2a', '#5a3a6a', '#2f5a7a', '#8a2f2a']);
+  const W0 = 42, D = 26, H = 29;
+  return b3dBlock(W0, D, H, 14, g => {
+    const { r } = g;
+    const O = '#3a302b';
+    const f = g.box(1, 8, 0, W0 - 2, D - 8, H, { front: wall, top: shade(wall, 0.35), side: shade(wall, -0.3), line: O });
+    const Z = z => f.y + f.h - z;
+    g.sideRect(W0 - 1, 12, 18, 6, 12, O); g.sideRect(W0 - 1, 13, 17, 7, 11, '#5f87a6');
+    r(shade(wall, -0.2), f.x + 1, Z(15), f.w - 1, 2);
+    r(O, f.x + 5, Z(13), 9, 13); r(door, f.x + 6, Z(12), 7, 12); r(shade(door, 0.25), f.x + 6, Z(12), 1, 12);
+    g.win(f.x + 20, Z(11), 13, 7, wall);
+    if (rnd() < 0.6) { r('#3a4a58', f.x + 4, Z(H - 3), 12, 9); g.balcony(f.x + 2, Z(20), 18, rnd); g.win(f.x + 23, Z(H - 4), 10, 7, wall); }
+    else { g.win(f.x + 5, Z(H - 4), 10, 7, wall); g.win(f.x + 23, Z(H - 4), 10, 7, wall); }
+    r(shade(wall, 0.4), f.x, f.y - 1, f.w + 1, 1);
+    g.tank(rnd() < 0.5 ? 30 : 12, 18, H, 3, 6);
+    if (rnd() < 0.5) g.washing(4, 20, 14, H, rnd);
+    else for (const px of [6, 12]) { const [sx, sy] = g.P(px, 10, H); r('#b5573a', Math.round(sx), Math.round(sy) - 2, 3, 2); r('#4f8a3c', Math.round(sx) - 1, Math.round(sy) - 4, 5, 2); }
+    // Compound wall with the gate.
+    const cw = pk(['#e9e4dc', '#c9c2b6', wall]);
+    const cf = g.box(0, 0, 0, W0, 2, 6, { front: cw, top: shade(cw, 0.3), side: shade(cw, -0.3), line: O });
+    r('#2a2a2e', cf.x + 7, cf.y, 11, cf.h); for (let x = cf.x + 8; x < cf.x + 17; x += 2) r('#8a8f96', x, cf.y + 1, 1, cf.h - 2);
+    r('#b5573a', cf.x + cf.w - 6, cf.y - 3, 4, 3); r('#3f7a35', cf.x + cf.w - 7, cf.y - 6, 6, 3); r('#5a9a45', cf.x + cf.w - 6, cf.y - 7, 3, 2);
+  });
+}
+
+// A glass office tower on a podium, the way Koramangala builds them.
+function bOffice3D(glass, dark, W0, H, seed) {
+  const D = 38;
+  return b3dBlock(W0, D, H, 12, g => {
+    const { r } = g;
+    const O = '#22303f';
+    const pod = g.box(0, 0, 0, W0, D, 14, { front: '#d9dee2', top: '#eef1f3', side: '#a3a9ae', line: O });
+    r('#3a4a58', pod.x + 3, pod.y + 3, pod.w - 5, pod.h - 4);
+    for (let x = pod.x + 5; x < pod.x + pod.w - 6; x += 8) r('#ffd98a', x, pod.y + 5, 5, pod.h - 7);
+    r(O, pod.x + pod.w / 2 - 12, pod.y + 1, 24, 2); r('#eef1f3', pod.x + pod.w / 2 - 11, pod.y + 1, 22, 1);
+    const f = g.box(5, 5, 14, W0 - 10, D - 10, H - 14, { front: glass, top: '#d9dee2', side: dark, line: O });
+    for (let y = f.y + 3; y < f.y + f.h - 1; y += 6) r(shade(glass, -0.25), f.x + 1, y, f.w - 1, 1);
+    for (let x = f.x + 6; x < f.x + f.w - 1; x += 9) r(shade(glass, -0.12), x, f.y + 1, 1, f.h - 2);
+    for (let k = 0; k < f.w + f.h; k += 23) for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) { const x = f.x + 1 + k - Math.floor((f.y + f.h - 1 - (f.y + 1 + i * 6 + j)) * 0.5) + j, y = f.y + f.h - 2 - i * 6 - j; if (x > f.x && x < f.x + f.w && y > f.y) r('#d8eef6', x, y, 1, 1); }
+    for (let z = 20; z < H - 4; z += 6) g.sideRect(W0 - 5, 6, D - 6, z, z + 1, shade(dark, -0.25));
+    r(O, f.x, f.y + 4, f.w + 1, 1); r(shade(glass, -0.4), f.x + 1, f.y + 1, f.w - 1, 3);
+    g.acUnit(8, 14, H); g.acUnit(18, 14, H);
+    g.stairRoom(W0 - 26, 12, H, 14, 12, 8, '#c9ced2');
+    if (seed % 2) g.dish(W0 - 14, 8, H);
   });
 }
 
@@ -353,8 +691,18 @@ function bExtrude(src, depth, cut = 0) {
     return at(x, y);
   };
   for (let y = cut; y < h; y++) {
+    // The right-hand wall is the end of the last run that is wider than a pole:
+    // a flagstaff or a lamp post standing beside the building is not its wall.
     let xr = -1;
-    for (let x = w - 1; x >= 0; x--) if (solid(x, y)) { xr = x; break; }
+    for (let x = w - 1; x >= 0; x--) {
+      if (!solid(x, y)) continue;
+      let x0 = x;
+      while (x0 > 0 && solid(x0 - 1, y)) x0--;
+      if (x - x0 >= 3 || xr < 0 && x0 === 0) { xr = x; break; }
+      if (xr < 0) xr = -2;
+      x = x0;
+    }
+    if (xr === -2) for (let x = w - 1; x >= 0; x--) if (solid(x, y)) { xr = x; break; }
     if (xr < 0) continue;
     const wall = sample(xr, y, -1, 0);
     for (let x = 0; x <= xr; x++) {
@@ -389,14 +737,73 @@ function bExtrude(src, depth, cut = 0) {
   return out;
 }
 
+// Temple stone: weathered granite, lime-washed stucco, darker grey granite.
+const B_STONE = { front: '#d3c7ad', top: '#ebe2cc', side: '#a39578', line: '#3d3428' };
+const B_STUCCO = { front: '#ece0c2', top: '#f7efdc', side: '#c2b190', line: '#3d2a1e' };
+const B_GRANITE = { front: '#bdb8ac', top: '#d9d5cb', side: '#8c877c', line: '#33302b' };
+
+// A South Indian temple: a pillared hall on a plinth, a gopuram over its
+// entrance and the vimana over the sanctum behind it. Options: w, d, hall
+// height, gop (gopuram tiers) and gopW, vim (vimana tiers), steps, nandi,
+// paint (coloured figures in the niches), stripes (red and white walls).
+function bTemple3D(o) {
+  const { w, d, pal } = o;
+  const rnd = seeded(w * 7 + d * 3 + (o.gop || 0));
+  const plinth = o.steps || 4;
+  const gH = o.gop ? 11 + 8 * (o.gop - 1) + 16 : 0, vH = o.vim ? 9 + 6 * (o.vim - 1) + 22 : 0;
+  const H = plinth + o.hall + Math.max(gH, vH);
+  const img = b3dBlock(w, d, H, 4, g => {
+    const { r } = g;
+    const L = pal.line;
+    const base = g.box(0, 0, 0, w, d, plinth, { front: shade(pal.side, 0.15), top: pal.top, side: shade(pal.side, -0.15), line: L });
+    if (o.steps) for (let k = 0; k < plinth; k += 2) { r(L, base.x + w / 2 - 14 - k, base.y + k, 29 + k * 2, 1); r(pal.top, base.x + w / 2 - 13 - k, base.y + k + 1, 27 + k * 2, 1); }
+    const hall = g.box(4, 6, plinth, w - 8, d - 10, o.hall, pal);
+    r(L, hall.x + 1, hall.y + 3, hall.w - 1, 1);
+    for (let x = hall.x + 2; x < hall.x + hall.w - 1; x += 5) { r(L, x, hall.y - 2, 3, 2); r(pal.top, x + 1, hall.y - 2, 1, 1); }
+    const cx = hall.x + hall.w / 2;
+    if (o.stripes) {
+      for (let x = hall.x + 1; x < hall.x + hall.w; x++) r(((x - hall.x) >> 2) % 2 ? '#c8402f' : '#f7efdc', x, hall.y + 4, 1, hall.h - 5);
+      r(L, cx - 6, hall.y + 6, 12, hall.h - 6); r('#2b2620', cx - 5, hall.y + 7, 10, hall.h - 7); r('#e6c15e', cx - 1, hall.y + 9, 2, 3);
+    } else {
+      // A row of square pillars in front of the dark hall.
+      r('#2b2620', hall.x + 2, hall.y + 4, hall.w - 3, hall.h - 4);
+      const door = o.nandi ? 14 : 7;
+      for (let x = hall.x + 2; x < hall.x + hall.w - 2; x += 8) {
+        if (Math.abs(x + 1 - cx) < door) continue;
+        r(pal.front, x, hall.y + 4, 3, hall.h - 4); r(pal.top, x, hall.y + 4, 1, hall.h - 4); r(L, x + 3, hall.y + 4, 1, hall.h - 4);
+        r(pal.top, x - 1, hall.y + 4, 5, 1); r(pal.top, x - 1, hall.y + hall.h - 2, 5, 1);
+      }
+      if (o.nandi) {
+        // The great Nandi, black granite, seated and garlanded, filling the doorway.
+        r(pal.top, cx - 13, hall.y + 4, 26, 2); r('#16100c', cx - 12, hall.y + 6, 24, hall.h - 6);
+        const ny = hall.y + hall.h - 1;
+        r('#0e0e11', cx - 10, ny - 9, 17, 9); r('#2a2c33', cx - 9, ny - 8, 15, 3); r('#3c3f48', cx - 8, ny - 8, 6, 1);
+        r('#0e0e11', cx - 5, ny - 12, 7, 4); r('#2a2c33', cx - 4, ny - 11, 5, 2);
+        r('#0e0e11', cx + 4, ny - 14, 7, 9); r('#2a2c33', cx + 5, ny - 13, 5, 6); r('#3c3f48', cx + 5, ny - 13, 1, 5);
+        r('#cfc6b4', cx + 4, ny - 16, 1, 3); r('#cfc6b4', cx + 9, ny - 16, 1, 3);
+        r('#ee8b3a', cx + 3, ny - 7, 9, 1); r('#f2c94c', cx + 4, ny - 6, 7, 1); r('#d8433b', cx - 2, ny - 9, 3, 1);
+      } else { r('#3a2a20', cx - 5, hall.y + 5, 10, hall.h - 5); r('#e6c15e', cx - 1, hall.y + 7, 2, 2); }
+    }
+    if (o.vim) g.vimana(w * 0.68, d - 12, plinth + o.hall, 20, o.vim, pal);
+    if (o.gop) g.gopuram(w / 2, 13, plinth + o.hall, o.gopW, 12, o.gop, pal, o.paint ? rnd : null);
+    if (o.flagpost) {
+      // The brass flagstaff (dhwaja stambha) in front of the gateway.
+      const [fx, fy] = g.P(o.flagpost, 3, plinth);
+      r('#4a3410', Math.round(fx) - 2, Math.round(fy) - 40, 4, 40); r('#d4a83a', Math.round(fx) - 1, Math.round(fy) - 40, 2, 39); r('#fff0a8', Math.round(fx) - 1, Math.round(fy) - 40, 1, 39);
+      for (let k = 0; k < 40; k += 7) r('#7a5a1a', Math.round(fx) - 2, Math.round(fy) - 38 + k, 4, 1);
+      r('#4a3410', Math.round(fx) - 4, Math.round(fy) - 44, 8, 4); r('#f0cc5c', Math.round(fx) - 3, Math.round(fy) - 43, 6, 2);
+    }
+  });
+  return img;
+}
+
 // How deep each kind of building is drawn, and where its domes start.
 const B_DEPTH = {
   highcourt: [44], library: [30, 20], holidayinn: [40], ksr: [44], busstand: [40], freedom: [34, 6], townhall: [40],
-  museum: [32], stmarks: [36, 32], ubcity: [56], krmarket: [26], fort: [18], tipu: [38], bulltemple: [32],
-  malleshwara: [32], vidyarthi: [20], cinema: [28], mtr: [22], darshini: [14], complex: [32], bakery: [18],
-  school: [30], temple: [24], mstation: [26], hut: [16], glasshouse: [44], grandstand: [24], palace: [56],
-  gurudwara: [30, 32], shop: [20], office0: [44], office1: [40], office2: [44], apartment0: [32], apartment1: [32],
-  apartment2: [32], jhouse: [18], mhouse: [16],
+  museum: [32], stmarks: [36, 32], ubcity: [56], krmarket: [26], fort: [18], tipu: [38],
+  vidyarthi: [20], cinema: [28], mtr: [22], darshini: [14], complex: [32], bakery: [18],
+  school: [30], mstation: [26], hut: [16], glasshouse: [44], grandstand: [24], palace: [56],
+  gurudwara: [30, 32], mhouse: [16],
 };
 
 const B_ART = {
@@ -600,16 +1007,6 @@ const B_ART = {
     r(GR, 4, 30, 36, 1);
   }),
 
-  shop: (wall, sign, awning) => bcv(64, 62, (r) => {
-    const O = '#3a3530';
-    r(O, 3, 4, 58, 56); r(wall, 4, 5, 56, 54); r(shade(wall, -0.12), 52, 5, 8, 54);
-    for (let y = 9; y < 14; y += 4) for (let x = 8; x < 56; x += 10) { r(O, x, y, 6, 3); r('#9cbdd4', x, y, 6, 2); }
-    r(O, 4, 15, 56, 10); r(sign, 5, 16, 54, 8);
-    r(awning, 3, 27, 58, 4); for (let x = 3; x < 61; x += 6) r('#ffffff', x, 27, 3, 4);
-    r(O, 8, 32, 48, 26); r('#2b3a48', 9, 33, 46, 25);
-    for (let x = 11; x < 54; x += 8) r('#ffd98a', x, 36, 5, 18);
-  }),
-
   complex: () => bcv(150, 58, (r) => {
     const O = '#3a3530', W1 = '#d9cbb0', W2 = '#bfb197';
     const signs = ['#d8433b', '#2f6db0', '#f2c94c', '#2f8a3a', '#c3a0ec', '#ee8b3a', '#5b8ee0'];
@@ -650,20 +1047,8 @@ const B_ART = {
     r(O, 61, 9, 8, 8); r('#2b2220', 62, 10, 6, 7); r('#e6c15e', 63, 12, 4, 4);
   }),
 
-  temple: () => bcv(56, 64, (r) => {
-    const O = '#3d2a1e', ST = '#ecdfc0', ST2 = '#cdbb94', fig = ['#d8433b', '#2f6db0', '#f2c94c', '#2f8a3a', '#ee8b3a'];
-    r(O, 2, 46, 52, 17); r(ST, 3, 47, 50, 15); r('#d8433b', 3, 47, 50, 1); r('#ffffff', 3, 48, 50, 1);
-    for (let x = 4; x < 52; x += 4) r(x % 8 ? '#d8433b' : '#ffffff', x, 58, 3, 3);
-    r(O, 21, 50, 14, 13); r('#3a2a20', 22, 51, 12, 12); r('#e6c15e', 27, 53, 2, 3);
-    for (let k = 0; k < 6; k++) {
-      const w = 40 - k * 6, x = 28 - w / 2, y = 40 - k * 7;
-      r(O, x - 1, y, w + 2, 7); r(k % 2 ? ST2 : ST, x, y + 1, w, 5);
-      for (let fx = x + 2; fx < x + w - 2; fx += 4) r(fig[(fx + k) % fig.length], fx, y + 2, 2, 3);
-    }
-    r(O, 18, -1, 20, 0);
-    r(O, 23, 1, 10, 4); r('#e6c15e', 24, 2, 8, 2);
-    for (const x of [24, 28, 32]) { r('#e6c15e', x - 1, -1 + 1, 2, 1); }
-  }),
+  // Malgudi's village temple: a painted gopuram with red and white stripes below.
+  temple: () => bTemple3D({ w: 50, d: 24, hall: 14, gop: 4, gopW: 30, vim: 0, pal: B_STUCCO, paint: true, stripes: true }),
 
   banyan: () => bcv(140, 104, (r, c) => {
     const rnd = seeded(1935);
@@ -784,7 +1169,7 @@ const B_ART = {
     }
     // Clock tower.
     r(O, 124, 6, 52, 92); r(C1, 125, 7, 50, 90); r(C2, 168, 7, 7, 90); r(RB, 125, 7, 50, 3);
-    for (let i = 0; i < 9; i++) r(i % 2 ? C1 : RB, 125 + i * 6, 2, 4, 5);
+    r(O, 124, 1, 52, 6); r(RB, 125, 2, 50, 4); r('#a84a36', 125, 2, 50, 1);
     r(O, 139, 14, 22, 22); r('#ffffff', 140, 15, 20, 20); r(O, 149, 18, 2, 8); r(O, 150, 24, 7, 2);
     for (const [dx, dy] of [[0, -8], [8, 0], [0, 8], [-8, 0]]) r(O, 149 + dx, 24 + dy, 2, 2);
     r(O, 132, 56, 36, 42); r('#4a3020', 134, 60, 32, 38); r('#4a3020', 136, 58, 28, 2); r('#ffd98a', 140, 66, 20, 10);
@@ -936,39 +1321,189 @@ const B_ART = {
     }
   }),
 
-  // Dodda Basavana Gudi: a granite shrine with a tower, Nandi inside.
-  bulltemple: () => bcv(110, 104, (r) => {
-    const O = '#3a3530', S1 = '#d9cfb8', S2 = '#b3a68a', S3 = '#8f8268';
-    r(O, 4, 90, 102, 13); r(S2, 5, 91, 100, 11); for (let k = 0; k < 3; k++) r(S1, 30 - k * 4, 92 + k * 3, 50 + k * 8, 2);
-    r(O, 10, 48, 90, 43); r(S1, 11, 49, 88, 41); r(S3, 90, 49, 9, 41);
-    for (let x = 14; x < 96; x += 10) { r(O, x, 54, 3, 36); r(S2, x + 1, 54, 1, 36); }
-    r(O, 40, 56, 30, 34); r('#2b2620', 42, 58, 26, 32);
-    // The great Nandi, black granite.
-    r('#1a1a1e', 44, 72, 22, 14); r('#2f3138', 45, 73, 20, 6); r('#1a1a1e', 58, 66, 8, 8); r('#2f3138', 59, 67, 4, 3);
-    r('#e6c15e', 60, 64, 1, 2); r('#e6c15e', 64, 64, 1, 2); r('#d8433b', 50, 72, 6, 1);
-    // Vimana tower over the shrine.
-    for (let k = 0; k < 6; k++) {
-      const w = 60 - k * 9, x = 55 - w / 2, y = 42 - k * 7;
-      r(O, x - 1, y, w + 2, 8); r(k % 2 ? S2 : S1, x, y + 1, w, 6);
-      for (let fx = x + 2; fx < x + w - 2; fx += 5) r(S3, fx, y + 2, 2, 4);
+  // Dodda Basavana Gudi: a granite hall on a plinth with the black Nandi
+  // looking out of its door, a small gopuram over the entrance and the
+  // shrine's tower behind.
+  bulltemple: () => bTemple3D({ w: 96, d: 44, hall: 26, gop: 3, gopW: 40, vim: 3, nandi: true, pal: B_STONE }),
+
+  // Kadu Malleshwara: steps up to a stone gopuram, the shrine tower behind.
+  malleshwara: () => bTemple3D({ w: 88, d: 40, hall: 20, gop: 5, gopW: 46, vim: 3, steps: 6, pal: B_STONE, paint: false }),
+
+  // Someshwara Temple, Halasuru: a tall granite gopuram from Vijayanagara
+  // times, the shrine behind it and the brass flagstaff in front.
+  someshwara: () => bTemple3D({ w: 96, d: 44, hall: 18, gop: 7, gopW: 50, vim: 3, steps: 4, pal: B_GRANITE, flagpost: 18 }),
+
+  // St. Mary's Basilica, Shivajinagar: neo-Gothic, a tall spire over the
+  // west door, lancet windows and pinnacles along the aisles.
+  stmarys: () => b3dBlock(104, 52, 132, 4, g => {
+    const { r, P } = g;
+    const W = { front: '#efe7d8', top: '#fbf7ee', side: '#c4b8a3', line: '#3a3530' };
+    const SL = ['#24272c', '#3a3f47', '#525861', '#6c737d', '#8f969f', '#b9bec4'];
+    const lancet = (x, y, w, h) => { r('#3a3530', x - 1, y + 1, w + 2, h); r('#3a3530', x, y, w, 1); r('#33467a', x, y + 1, w, h - 1); r('#d8433b', x + 1, y + 3, 1, 1); r('#f2c94c', x + w - 2, y + 5, 1, 1); r('#5b8ee0', x, y + 1, 1, h - 2); };
+    const nave = g.box(4, 14, 0, 96, 38, 34, W);
+    g.prism(4, 14, 34, 96, 14, 38, (u, v) => v < 14 - Math.abs(u - 47.5) * 14 / 48, { front: W.front, top: '#9aa0a8', side: '#7d838c', line: W.line });
+    for (let x = nave.x + 4; x < nave.x + nave.w - 4; x += 10) { if (Math.abs(x - nave.x - 46) < 18) continue; lancet(x, nave.y + 8, 4, 14); r(W.side, x + 6, nave.y + 2, 2, nave.h - 2); }
+    for (const px of [0, 32, 64, 96]) { const [sx, sy] = P(4 + px, 14, 34); r('#3a3530', Math.round(sx) - 1, Math.round(sy) - 9, 3, 9); r(W.top, Math.round(sx), Math.round(sy) - 8, 1, 7); }
+    // The tower: door, rose window, belfry, then the slate spire.
+    const tw = g.box(38, 4, 0, 28, 26, 74, W);
+    const cx = tw.x + 14;
+    r('#3a3530', cx - 6, tw.y + tw.h - 22, 12, 22); r('#3a3530', cx - 5, tw.y + tw.h - 24, 10, 2); r('#5a3a2a', cx - 5, tw.y + tw.h - 21, 10, 21); r('#7a4a2a', cx, tw.y + tw.h - 21, 1, 21);
+    for (let yy = -5; yy <= 5; yy++) for (let xx = -5; xx <= 5; xx++) { const dd = Math.hypot(xx, yy); if (dd <= 5.4) r(dd > 4.4 ? '#3a3530' : (Math.round(Math.atan2(yy, xx) * 3) & 1) ? '#d8433b' : '#33467a', cx + xx, tw.y + 30 + yy, 1, 1); }
+    lancet(cx - 6, tw.y + 8, 4, 12); lancet(cx + 3, tw.y + 8, 4, 12);
+    for (const [px, py] of [[38, 4], [66, 4]]) { const [sx, sy] = P(px, py, 74); r('#3a3530', Math.round(sx) - 1, Math.round(sy) - 12, 3, 12); r(W.top, Math.round(sx), Math.round(sy) - 11, 1, 10); }
+    const [sx0, sy0] = P(52, 17, 74);
+    for (let k = 0; k < 52; k++) {
+      const half = Math.round(12 * (1 - k / 52)), X = Math.round(sx0), Y = Math.round(sy0) - k;
+      r('#24272c', X - half - 1, Y, half * 2 + 3, 1);
+      for (let i = -half; i <= half; i++) r(rampAt(SL, 0.7 - (i / Math.max(1, half)) * 0.45 + (k % 6 === 0 ? -0.15 : 0), i + 64, k), X + i, Y, 1, 1);
     }
-    r(O, 50, 0, 10, 6); r('#e6c15e', 51, 1, 8, 4); r('#e6c15e', 54, -1, 2, 2);
+    r('#3a3530', Math.round(sx0), Math.round(sy0) - 60, 1, 8); r('#3a3530', Math.round(sx0) - 2, Math.round(sy0) - 57, 5, 1);
   }),
 
-  // Kadu Malleshwara: a painted gopuram above steps.
-  malleshwara: () => bcv(100, 96, (r) => {
-    const O = '#3d2a1e', ST = '#ecdfc0', ST2 = '#cdbb94', fig = ['#d8433b', '#2f6db0', '#f2c94c', '#2f8a3a', '#ee8b3a', '#c3a0ec'];
-    for (let k = 0; k < 6; k++) { r(O, 20 - k * 3, 78 + k * 3, 60 + k * 6, 1); r(k % 2 ? '#bdb5a5' : '#d3cbbb', 20 - k * 3, 79 + k * 3, 60 + k * 6, 2); }
-    r(O, 18, 56, 64, 23); r(ST, 19, 57, 62, 21);
-    for (let x = 20; x < 80; x += 4) r(x % 8 ? '#d8433b' : '#ffffff', x, 74, 3, 3);
-    r(O, 42, 60, 16, 19); r('#3a2a20', 43, 61, 14, 18); r('#e6c15e', 49, 64, 2, 3);
-    for (let k = 0; k < 7; k++) {
-      const w = 56 - k * 7, x = 50 - w / 2, y = 49 - k * 7;
-      r(O, x - 1, y, w + 2, 8); r(k % 2 ? ST2 : ST, x, y + 1, w, 6);
-      for (let fx = x + 2; fx < x + w - 2; fx += 4) r(fig[(fx + k) % fig.length], fx, y + 2, 2, 4);
+  // Russell Market (1927): a stone hall with a tall arched gateway, piled
+  // with fruit and vegetables.
+  russell: () => bSigned(sign => b3dBlock(132, 46, 56, 4, g => {
+    const { r } = g;
+    const S = { front: '#cbb48c', top: '#e4d3b2', side: '#9c8662', line: '#3a2a1a' };
+    const hall = g.box(0, 8, 0, 132, 38, 24, S);
+    g.roof(0, 8, 24, 132, 38, 12, '#a8553a', '#3a2a1a');
+    const rnd = seeded(1927);
+    const piles = ['#ee8b3a', '#f2c94c', '#7cc35a', '#d8433b', '#3f8a3c', '#c3a0ec', '#f4f1ea'];
+    for (let x = hall.x + 4; x < hall.x + hall.w - 10; x += 14) {
+      if (Math.abs(x + 5 - (hall.x + 66)) < 22) continue;
+      r('#3a2a1a', x, hall.y + 5, 10, hall.h - 5); r('#2b2014', x + 1, hall.y + 6, 8, hall.h - 6); r('#3a2a1a', x + 1, hall.y + 4, 8, 1);
+      for (let k = 0; k < 12; k++) r(piles[Math.floor(rnd() * piles.length)], x + 1 + Math.floor(rnd() * 7), hall.y + hall.h - 6 + Math.floor(rnd() * 4), 2, 2);
     }
-    r(O, 43, 0, 14, 4); r('#e6c15e', 44, 1, 12, 2);
+    const gate = g.box(46, 0, 0, 40, 12, 44, S);
+    r('#3a2a1a', gate.x + 9, gate.y + 16, 22, 28); r('#2b2014', gate.x + 10, gate.y + 18, 20, 26);
+    for (let dy = 0; dy < 7; dy++) { const half = Math.round(10 * Math.sqrt(1 - (dy / 7) ** 2)); r('#3a2a1a', gate.x + 20 - half, gate.y + 17 - dy, half * 2, 1); r('#2b2014', gate.x + 21 - half, gate.y + 18 - dy, half * 2 - 2, 1); }
+    for (let k = 0; k < 14; k++) r(piles[Math.floor(rnd() * piles.length)], gate.x + 11 + Math.floor(rnd() * 17), gate.y + 38 + Math.floor(rnd() * 5), 2, 2);
+    r('#3a2a1a', gate.x + 1, gate.y + 3, 39, 9); r('#7a2b25', gate.x + 2, gate.y + 4, 37, 7);
+    sign({ x: gate.x + 20.5, y: gate.y + 7.5, w: 36 });
+    for (const x of [gate.x - 1, gate.x + 36]) { r('#3a2a1a', x, gate.y - 6, 5, 6); r(S.top, x + 1, gate.y - 5, 3, 5); r('#3a2a1a', x + 2, gate.y - 8, 1, 2); }
+  })),
+
+  // Bengaluru Cantonment station: a long colonial building under tiles with
+  // a gabled porch, and the platform canopy behind.
+  cantonment: () => bSigned(sign => b3dBlock(150, 44, 46, 4, g => {
+    const { r } = g;
+    const C = { front: '#efe0bf', top: '#f7ecd4', side: '#c4b08a', line: '#3a2a22' };
+    g.box(0, 26, 0, 150, 14, 18, { front: '#9aa0a6', top: '#c9ced2', side: '#6e7378', line: '#2f2a24' });
+    const b = g.box(4, 8, 0, 142, 26, 22, C);
+    g.roof(4, 8, 22, 142, 26, 12, '#b5553a', '#3a2a22');
+    r('#8a3a2a', b.x + 1, b.y + b.h - 6, b.w - 1, 5);
+    for (let x = b.x + 6; x < b.x + b.w - 6; x += 10) { if (Math.abs(x + 3 - (b.x + 71)) < 16) continue; archWindow(r, x, b.y + 5, 6, 10, '#c4b08a', '#3a3f4a'); }
+    const p = g.box(56, 0, 0, 38, 10, 28, C);
+    g.prism(56, 0, 28, 38, 12, 10, (u, v) => v < 12 - Math.abs(u - 18.5) * 12 / 19, { front: C.front, top: '#b5553a', side: '#8a3a28', line: C.line });
+    r('#3a2a22', b.x + 2, b.y + 1, 56, 7); r('#8a3a2a', b.x + 3, b.y + 2, 54, 5);
+    sign({ x: b.x + 30, y: b.y + 4.5, w: 52 });
+    r('#3a2a22', p.x + 6, p.y + 4, 27, 8); r('#e9e4dc', p.x + 7, p.y + 5, 25, 6); r('#3a2a22', p.x + 19, p.y + 6, 1, 3); r('#3a2a22', p.x + 19, p.y + 8, 3, 1);
+    r('#3a2a22', p.x + 12, p.y + 14, 14, 14); r('#4a3020', p.x + 13, p.y + 15, 12, 13); r('#ffd98a', p.x + 15, p.y + 18, 8, 5);
+    for (let dy = 0; dy < 5; dy++) { const [sx, sy] = g.P(75, 0, 28 + dy); r('#ffffff', Math.round(sx) - 2, Math.round(sy) - 6, 5, 1); }
+  })),
+
+  // ISKCON, Rajajinagar: white and glass on Hare Krishna Hill, a gold-tipped
+  // tower over the shrine, steps climbing the green slope.
+  iskcon: () => b3dBlock(150, 60, 138, 4, g => {
+    const { r } = g;
+    const WH = { front: '#f4f1ea', top: '#ffffff', side: '#c9c4b8', line: '#3a3530' };
+    const GLD = { front: '#e2b54a', top: '#f6dc84', side: '#a87e24', line: '#4a3410' };
+    for (let k = 0; k < 3; k++) {
+      const f = g.box(k * 8, k * 6, k * 7, 150 - k * 16, 60 - k * 12, 7, { front: '#5a9a45', top: '#7cc35a', side: '#3f7a35', line: '#2a4a22' });
+      r('#3a3530', f.x + f.w / 2 - 9, f.y, 18, f.h); r('#e9e4dc', f.x + f.w / 2 - 8, f.y + 1, 16, f.h - 2);
+      for (let y = f.y + 2; y < f.y + f.h - 1; y += 2) r('#bdb5a5', f.x + f.w / 2 - 8, y, 16, 1);
+    }
+    const t = g.box(26, 20, 21, 98, 32, 34, WH);
+    for (let x = t.x + 4; x < t.x + t.w - 6; x += 12) { r('#3a3530', x, t.y + 8, 8, 20); r('#7fb3c4', x + 1, t.y + 9, 6, 18); r('#c9e6ef', x + 1, t.y + 9, 2, 18); }
+    r('#d4a83a', t.x + 1, t.y + 4, t.w - 1, 2);
+    for (const cx of [36, 114]) g.vimana(cx, 34, 55, 16, 2, GLD);
+    g.gopuram(75, 34, 55, 40, 16, 6, WH);
+    const [fx, fy] = g.P(75, 34, 55 + 11 + 8 * 5 + 16);
+    r('#4a3410', Math.round(fx) - 3, Math.round(fy) - 12, 7, 12); r('#f0cc5c', Math.round(fx) - 2, Math.round(fy) - 11, 5, 10); r('#fff0a8', Math.round(fx) - 2, Math.round(fy) - 11, 1, 9);
+    r('#4a3410', Math.round(fx), Math.round(fy) - 22, 1, 10); r('#ee8b3a', Math.round(fx) + 1, Math.round(fy) - 22, 6, 3);
   }),
+
+  // Gavi Gangadhareshwara: a cave temple cut into a granite outcrop. In the
+  // forecourt stand two giant stone discs, the sun and the moon.
+  gavi: () => b3dBlock(124, 50, 62, 4, g => {
+    const { r } = g;
+    const rnd = seeded(1536);
+    const RK = { front: '#a8a397', top: '#c7c3b8', side: '#7f7a70', line: '#33302b' };
+    g.prism(0, 22, 0, 124, 44, 26, (u, v) => v < 44 * Math.sqrt(Math.max(0, 1 - ((u - 62) / 63) ** 2)) * (0.92 + Math.sin(u * 0.4) * 0.05), RK);
+    for (let i = 0; i < 40; i++) { const [sx, sy] = g.P(10 + rnd() * 104, 22, 4 + rnd() * 30); r('#8f8a7f', Math.round(sx), Math.round(sy), 2 + Math.floor(rnd() * 3), 1); }
+    const [cx, cy] = g.P(62, 22, 0);
+    r('#33302b', Math.round(cx) - 16, Math.round(cy) - 22, 32, 22); r('#1a1714', Math.round(cx) - 15, Math.round(cy) - 21, 30, 21);
+    for (const px of [-12, -4, 4, 12]) { r('#bdb8ac', Math.round(cx) + px - 1, Math.round(cy) - 18, 3, 18); r('#33302b', Math.round(cx) + px + 2, Math.round(cy) - 18, 1, 18); }
+    r('#ffd98a', Math.round(cx) - 1, Math.round(cy) - 12, 2, 3);
+    g.box(0, 0, 0, 124, 22, 3, { front: '#bdb5a5', top: '#d9d2c4', side: '#9a9282', line: '#33302b' });
+    for (const [px, rad] of [[24, 11], [100, 11]]) {
+      g.box(px - 3, 8, 3, 6, 6, 18, { front: '#c7c3b8', top: '#e0ddd5', side: '#9a958a', line: '#33302b' });
+      const [dx, dy] = g.P(px, 11, 21 + rad);
+      for (let yy = -rad; yy <= rad; yy++) for (let xx = -rad; xx <= rad; xx++) {
+        const dd = Math.hypot(xx, yy);
+        if (dd > rad + 0.4) continue;
+        r(dd > rad - 1 ? '#33302b' : dd > rad - 3 ? '#9a958a' : (xx + yy) < 0 ? '#d9d5cb' : '#bdb8ac', Math.round(dx) + xx, Math.round(dy) + yy, 1, 1);
+      }
+    }
+    for (const px of [50, 74]) { const [sx, sy] = g.P(px, 6, 3); r('#33302b', Math.round(sx) - 1, Math.round(sy) - 20, 3, 20); r('#c7c3b8', Math.round(sx), Math.round(sy) - 19, 1, 18); }
+    { const [sx, sy] = g.P(50, 6, 23); r('#33302b', Math.round(sx) - 3, Math.round(sy) - 5, 7, 2); r('#33302b', Math.round(sx) - 3, Math.round(sy) - 8, 1, 4); r('#33302b', Math.round(sx) + 3, Math.round(sy) - 8, 1, 4); r('#33302b', Math.round(sx), Math.round(sy) - 9, 1, 5); }
+    { const [sx, sy] = g.P(74, 6, 23); r('#33302b', Math.round(sx) - 3, Math.round(sy) - 7, 7, 3); r('#33302b', Math.round(sx) - 1, Math.round(sy) - 5, 3, 1); r('#c7c3b8', Math.round(sx) - 2, Math.round(sy) - 6, 5, 1); }
+  }),
+
+  // Mayo Hall (1883): two storeys of round arches, a balustrade and a pediment.
+  mayohall: () => b3dBlock(118, 40, 58, 4, g => {
+    const { r } = g;
+    const M = { front: '#f1e8d6', top: '#fbf6ea', side: '#c8bca4', line: '#3a3530' };
+    const f = g.box(0, 0, 0, 118, 40, 46, M);
+    for (const [y0, h] of [[f.y + 8, 14], [f.y + 28, 14]]) for (let x = f.x + 5; x < f.x + f.w - 6; x += 11) { r(M.side, x - 2, y0 - 1, 1, h + 2); if (Math.abs(x + 3 - (f.x + 59)) < 8 && y0 > f.y + 20) continue; archWindow(r, x, y0, 6, h, '#b8ab90', '#4a5260'); r('#ffffff', x + 2, y0 - 2, 2, 1); }
+    r(M.side, f.x + 1, f.y + 24, f.w - 1, 2); r('#ffffff', f.x + 1, f.y + 24, f.w - 1, 1);
+    r('#3a3530', f.x + 53, f.y + 30, 13, 16); r('#5a3a2a', f.x + 54, f.y + 31, 11, 15);
+    for (let x = f.x + 2; x < f.x + f.w; x += 3) r(M.top, x, f.y - 4, 2, 4);
+    r('#3a3530', f.x, f.y - 5, f.w + 1, 1);
+    g.prism(39, 0, 46, 40, 13, 6, (u, v) => v < 13 - Math.abs(u - 19.5) * 13 / 20, { front: '#e0d2b4', top: '#f6efe0', side: M.side, line: M.line });
+    { const [px, py] = g.P(59, 0, 50); r('#3a3530', Math.round(px) - 2, Math.round(py) - 2, 5, 5); r('#ffffff', Math.round(px) - 1, Math.round(py) - 1, 3, 3); }
+  }),
+
+  // Government Museum (1877): red walls, white columns and a pediment, like
+  // its neighbours in Cubbon Park.
+  govmuseum: () => b3dBlock(126, 40, 56, 4, g => {
+    const { r } = g;
+    const RD = { front: '#b8483d', top: '#d06a5c', side: '#8a3530', line: '#3d2724' };
+    const WH = '#f1e9dc';
+    const f = g.box(0, 6, 0, 126, 34, 36, RD);
+    r(WH, f.x + 1, f.y + 1, f.w - 1, 3); r(WH, f.x + 1, f.y + 18, f.w - 1, 2);
+    for (let x = f.x + 6; x < f.x + f.w - 6; x += 12) { if (Math.abs(x - f.x - 60) < 22) continue; archWindow(r, x, f.y + 7, 6, 9, WH, '#3a2f2f'); archWindow(r, x, f.y + 23, 6, 10, WH, '#3a2f2f'); }
+    const p = g.box(38, 0, 0, 50, 8, 40, { front: '#9a3a30', top: '#d06a5c', side: '#7a2a25', line: '#3d2724' });
+    for (let i = 0; i < 6; i++) { const x = p.x + 3 + i * 9; r('#3d2724', x - 1, p.y + 2, 5, p.h - 2); r(WH, x, p.y + 3, 3, p.h - 3); r('#ffffff', x, p.y + 3, 1, p.h - 3); r(WH, x - 1, p.y + 2, 5, 2); }
+    g.prism(36, 0, 40, 54, 12, 8, (u, v) => v < 12 - Math.abs(u - 26.5) * 12 / 27, { front: WH, top: '#d06a5c', side: '#8a3530', line: '#3d2724' });
+  }),
+
+  // Jawaharlal Nehru Planetarium: a white dome on a round hall.
+  planetarium: () => bSigned(sign => b3dBlock(70, 36, 52, 4, g => {
+    const { r } = g;
+    const WH = ['#3a3530', '#9c968a', '#c9c4b8', '#e4e0d6', '#f4f1ea', '#ffffff'];
+    g.box(0, 0, 0, 70, 36, 4, { front: '#c9c2b6', top: '#e9e4dc', side: '#9a9282', line: '#3a3530' });
+    g.cyl(35, 18, 4, 30, 18, WH);
+    g.dome(35, 18, 22, 31, 24, WH, 0, '#3a3530');
+    const [sx, sy] = g.P(35, 0, 4);
+    r('#3a3530', Math.round(sx) - 22, Math.round(sy) - 16, 44, 9); r('#2f4f8a', Math.round(sx) - 21, Math.round(sy) - 15, 42, 7);
+    sign({ x: Math.round(sx), y: Math.round(sy) - 11.5, w: 40 });
+    r('#3a3530', Math.round(sx) - 6, Math.round(sy) - 6, 12, 6); r('#5a3a2a', Math.round(sx) - 5, Math.round(sy) - 5, 10, 5);
+    for (const k of [-1, 0, 1]) { const [tx, ty] = g.P(35 + k * 9, 18, 46 - Math.abs(k) * 4); r('#f2c94c', Math.round(tx), Math.round(ty), 1, 1); }
+  })),
+
+  // A tiffin room in an old tiled house: CTR in Malleswaram, and its cousins.
+  tiffin: () => bSigned(sign => b3dBlock(70, 30, 34, 4, g => {
+    const { r } = g;
+    const C = { front: '#f2e6c8', top: '#fbf3e0', side: '#c9b88e', line: '#3d2a1e' };
+    const f = g.box(0, 0, 0, 70, 30, 20, C);
+    g.roof(0, 0, 20, 70, 30, 12, '#b5553a', '#3d2a1e');
+    r('#3d2a1e', f.x + 10, f.y + 1, f.w - 19, 7); r('#2f6b3a', f.x + 11, f.y + 2, f.w - 21, 5);
+    sign({ x: f.x + f.w / 2, y: f.y + 4.5, w: f.w - 23 });
+    r('#3d2a1e', f.x + 4, f.y + 9, f.w - 7, 11); r('#2b2014', f.x + 5, f.y + 10, f.w - 9, 10);
+    for (let x = f.x + 7; x < f.x + f.w - 6; x += 9) { r('#8a5a3a', x, f.y + 15, 6, 2); r('#f4f1ea', x + 1, f.y + 13, 2, 2); r('#e6c15e', x + 3, f.y + 13, 2, 2); }
+    for (let x = f.x + 4; x < f.x + f.w - 3; x += 12) r('#6b4a32', x, f.y + 9, 2, 11);
+  })),
 
   vidyarthi: () => bcv(64, 46, (r) => {
     const O = '#2f2a24';
@@ -984,18 +1519,18 @@ const B_ART = {
     r(O, 4, 18, 102, 65); r(W1, 5, 19, 100, 63);
     for (let x = 5; x < 105; x += 10) r(W2, x, 19, 4, 63);
     r(O, 0, 0, 110, 18); r('#8f2a25', 1, 1, 108, 16);
-    for (let x = 3; x < 108; x += 5) { r('#ffe08a', x, 1, 2, 1); r('#ffe08a', x, 16, 2, 1); }
+    for (let x = 3; x < 108; x += 5) { r('#ffe08a', x, 3, 2, 1); r('#ffe08a', x, 14, 2, 1); }
     r(O, 30, 24, 50, 30); r('#2f4f8a', 31, 25, 48, 28); r('#f2c94c', 35, 30, 12, 12); r('#d8433b', 52, 30, 22, 6); r('#ffffff', 52, 40, 16, 3);
     r(O, 34, 60, 42, 22); r('#3a2a20', 35, 61, 40, 21); r('#ffd98a', 38, 64, 34, 4);
   }),
 
   // Koramangala: glass offices and apartment blocks with water tanks.
-  office0: () => bOffice('#7fb3c4', '#5f93a8', 92, 120),
-  office1: () => bOffice('#8fc0a8', '#6a9a86', 84, 104),
-  office2: () => bOffice('#a6b4d4', '#7a88ae', 96, 132),
-  apartment0: () => bApartment('#f2d7b8', 0),
-  apartment1: () => bApartment('#dfe6ea', 1),
-  apartment2: () => bApartment('#f0c9b0', 2),
+  office0: () => bOffice3D('#7fb3c4', '#4f7f94', 84, 112, 0),
+  office1: () => bOffice3D('#8fc0a8', '#5a8a76', 78, 96, 1),
+  office2: () => bOffice3D('#a6b4d4', '#6a789e', 88, 124, 2),
+  apartment0: () => bApartment3D('#f2d7b8', 0),
+  apartment1: () => bApartment3D('#dfe6ea', 1),
+  apartment2: () => bApartment3D('#f0c9b0', 2),
 
   // Silk Board: a flyover over the junction.
   flyover: () => bcv(320, 64, (r) => {
@@ -1006,61 +1541,39 @@ const B_ART = {
     r(O, 120, 0, 80, 9); r('#2f6b3a', 121, 1, 78, 7);
   }),
 
+  // The way down to an underground station: a glass canopy over the stairs
+  // and a totem with the Namma Metro sign.
+  entrance: (col) => b3dBlock(26, 14, 20, 6, g => {
+    const { r, P } = g;
+    g.box(0, 0, 0, 26, 14, 2, { front: '#bdb5a5', top: '#d9d2c4', side: '#9a9282', line: '#3a3530' });
+    polyFill(g.c, [P(4, 2, 2), P(18, 2, 2), P(18, 12, 2), P(4, 12, 2)], '#2b2620');
+    for (let k = 0; k < 5; k++) { const [sx, sy] = P(5, 3 + k * 2, 2); r('#8a857a', Math.round(sx), Math.round(sy), 13, 1); }
+    for (const px of [3, 19]) { const [sx, sy] = P(px, 1, 2); r('#4a4f58', Math.round(sx), Math.round(sy) - 13, 1, 13); }
+    g.box(1, -1, 15, 22, 15, 2, { front: col, top: '#cfe6ee', side: shade(col, -0.35), line: '#2b2620' });
+    const t = g.box(22, 2, 2, 3, 3, 16, { front: '#3a3530', top: '#5d6369', side: '#2b2620', line: '#1d1816' });
+    r(col, t.x, t.y + 1, 4, 5); r('#ffffff', t.x + 1, t.y + 2, 2, 3);
+  }),
+
+  // An auto stand: a parked auto-rickshaw under a black and yellow board.
+  autostand: () => bcv(40, 30, (r) => {
+    r('#2b2220', 32, 4, 2, 26); r('#1d1816', 25, 0, 15, 8); r('#f2c94c', 26, 1, 13, 6); r('#1d1816', 28, 3, 9, 2);
+    r('#2b2220', 2, 12, 22, 14); r('#f0c419', 3, 13, 20, 6); r('#ffe27a', 3, 13, 20, 1); r('#2e7d32', 3, 19, 20, 6);
+    r('#9cc4dc', 16, 14, 6, 5); r('#1d1816', 12, 14, 3, 11); r('#fff3c8', 22, 20, 2, 2);
+    r('#1d1816', 4, 25, 5, 5); r('#1d1816', 17, 25, 5, 5); r('#5d6369', 5, 26, 3, 3); r('#5d6369', 18, 26, 3, 3);
+  }),
+
+  // A level-crossing barrier, raised.
+  boom: () => bcv(30, 24, (r) => {
+    r('#2b2220', 2, 8, 4, 16); r('#d9d2c4', 3, 9, 2, 14);
+    for (let i = 0; i < 24; i++) { const x = 4 + i, y = 9 - Math.round(i * 0.35); r(((i >> 2) % 2) ? '#ffffff' : '#d8433b', x, y, 1, 2); }
+    r('#2b2220', 0, 6, 8, 3); r('#d8433b', 1, 7, 2, 1);
+  }),
+
   stairs: (col) => bcv(14, 18, (r) => {
     r('#3a3530', 2, 0, 10, 18); for (let y = 1; y < 18; y += 3) { r('#c9c2b6', 3, y, 8, 2); r('#a39b8a', 3, y + 2, 8, 1); }
     r('#3a3530', 0, 0, 4, 6); r(col, 1, 1, 2, 4);
   }),
 };
-
-function bOffice(glass, dark, w, h) {
-  return bcv(w, h, (r) => {
-    const O = '#22303f';
-    r(O, 2, 6, w - 4, h - 6); 
-    for (let y = 7; y < h - 12; y++) for (let x = 3; x < w - 3; x++) r((y - 7) % 6 < 1 ? dark : (x + y) % 23 < 3 ? '#d8eef6' : x > w - 12 ? dark : glass, x, y);
-    r('#d9dee2', 2, 2, w - 4, 5); r(O, 2, 1, w - 4, 1);
-    r(O, 2, h - 12, w - 4, 12); r('#3a4a58', 3, h - 11, w - 6, 11); for (let x = 6; x < w - 6; x += 8) r('#ffd98a', x, h - 9, 5, 8);
-  });
-}
-
-function bApartment(wall, seed) {
-  const rnd = seeded(seed * 41 + 3);
-  return bcv(70, 96, (r) => {
-    const O = '#3a302b', sh = shade(wall, -0.14);
-    r(O, 3, 12, 64, 84); r(wall, 4, 13, 62, 82); r(sh, 56, 13, 10, 82);
-    for (let f = 0; f < 6; f++) {
-      const y = 16 + f * 13;
-      r(sh, 4, y + 11, 62, 2);
-      for (const x of [8, 26, 44]) { r(O, x, y, 12, 8); r('#7fa6c4', x + 1, y + 1, 10, 6); r(O, x + 5, y + 1, 1, 6); }
-      r(O, 6, y + 8, 58, 1); for (let x = 6; x < 64; x += 3) r(O, x, y + 9, 1, 2);
-      if (rnd() < 0.5) r(['#d8433b', '#5b8ee0', '#f2c94c'][f % 3], 10 + Math.floor(rnd() * 40), y + 5, 6, 3);
-    }
-    for (const x of [10, 30, 50]) { r(O, x, 0, 10, 12); r('#2a2a2e', x + 1, 1, 8, 11); r('#4a4a52', x + 2, 1, 2, 11); }
-    r(O, 2, 10, 66, 3); r('#ffffff', 3, 11, 64, 1);
-  });
-}
-
-function bHouseJ(seed) {
-  const rnd = seeded(seed * 97 + 11);
-  const pk = a => a[Math.floor(rnd() * a.length)];
-  const wall = pk(['#f3e3c3', '#f2c9a8', '#cfe3d0', '#d8cfe8', '#f5e08a', '#bfd8e8', '#f0b9a0']);
-  const door = pk(['#7a4a2a', '#5a3a6a', '#2f5a7a', '#8a2f2a']);
-  return bcv(48, 48, (r) => {
-    const O = '#3a302b', sh = shade(wall, -0.14), dk = shade(wall, -0.26);
-    r(O, 3, 11, 42, 32); r(wall, 4, 12, 40, 30); r(sh, 37, 12, 7, 30);
-    r(O, 2, 8, 44, 4); r('#ffffff', 3, 9, 42, 2);
-    const tx = rnd() < 0.5 ? 30 : 8;
-    r(O, tx, 0, 11, 9); r('#2a2a2e', tx + 1, 1, 9, 8); r('#4a4a52', tx + 2, 1, 2, 8); r('#1a1a1e', tx + 1, 0, 9, 1);
-    r(dk, 4, 26, 40, 2);
-    r(O, 6, 20, 20, 1); for (let x = 6; x < 26; x += 2) r(O, x, 21, 1, 5);
-    r(O, 9, 13, 12, 7); r('#7fa6c4', 10, 14, 10, 5);
-    r(O, 29, 14, 10, 8); r('#7fa6c4', 30, 15, 8, 6); r(O, 32, 15, 1, 6); r(O, 35, 15, 1, 6);
-    r(O, 9, 30, 9, 12); r(door, 10, 31, 7, 11); r(shade(door, 0.2), 10, 31, 1, 11);
-    r(O, 25, 31, 13, 8); r('#6f93b0', 26, 32, 11, 6); for (let x = 27; x < 37; x += 2) r(O, x, 32, 1, 6);
-    const cw = pk(['#e9e4dc', '#c9c2b6', wall]);
-    r(O, 0, 41, 48, 6); r(cw, 1, 42, 46, 4); r('#2a2a2e', 8, 41, 11, 6); for (let x = 9; x < 19; x += 2) r('#8a8f96', x, 42, 1, 4);
-    r('#b5573a', 40, 38, 4, 4); r('#3f7a35', 39, 35, 6, 3); r('#5a9a45', 40, 34, 3, 2);
-  });
-}
 
 function bHouseM(seed) {
   const rnd = seeded(seed * 53 + 7);

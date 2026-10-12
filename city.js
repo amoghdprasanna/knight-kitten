@@ -22,26 +22,60 @@ const bkit = {
 
 const inRect = (x, y, r, pad = 0) => x >= r.x - pad && x < r.x + r.w + pad && y >= r.y - pad && y < r.y + r.h + pad;
 const inEll = (x, y, e, rx = e.rx, ry = e.ry) => ((x - e.x) / rx) ** 2 + ((y - e.y) / ry) ** 2 < 1;
-const bRoadAt = (x, y, pad = 0) => {
-  let best = null;
-  for (const r of B_ROADS) if (inRect(x, y, r, pad) && (!best || r.small)) best = r;
+// Roads are polylines like the real ones, straight or slanting. Each straight
+// piece is a segment with a direction (ux, uy), a left-hand normal (nx, ny)
+// and a half width; `axis` says whether it runs east-west, north-south or
+// diagonally.
+const B_RSEGS = [];
+for (const r of B_ROADS) {
+  for (let i = 0; i < r.pts.length - 1; i++) {
+    const [x0, y0] = r.pts[i], [x1, y1] = r.pts[i + 1];
+    const len = Math.hypot(x1 - x0, y1 - y0), ux = (x1 - x0) / len, uy = (y1 - y0) / len, hw = r.w / 2;
+    B_RSEGS.push({
+      road: r, x0, y0, x1, y1, len, ux, uy, nx: uy, ny: -ux, hw, first: i === 0, last: i === r.pts.length - 2,
+      axis: y0 === y1 ? 'h' : x0 === x1 ? 'v' : 'd',
+      bx0: Math.min(x0, x1) - hw, by0: Math.min(y0, y1) - hw, bx1: Math.max(x0, x1) + hw, by1: Math.max(y0, y1) + hw,
+    });
+  }
+}
+// The road at a point: the one whose centre line is nearest, for its width.
+function bRoadAt(x, y, pad = 0) {
+  let best = null, bd = Infinity;
+  for (const g of B_RSEGS) {
+    if (x < g.bx0 - pad || x > g.bx1 + pad || y < g.by0 - pad || y > g.by1 + pad) continue;
+    const d = segDist(x, y, g);
+    if (d <= g.hw + pad && d / g.hw < bd) { bd = d / g.hw; best = g.road; }
+  }
   return best;
-};
-const bDistrictAt = (x, y) => B_DISTRICTS.find(d => inRect(x, y, d)) || B_DISTRICTS[0];
+}
+// Districts are rectangles or polygons; later ones sit on top of earlier ones.
+for (const d of B_DISTRICTS) if (d.poly) {
+  const xs = d.poly.map(p => p[0]), ys = d.poly.map(p => p[1]);
+  Object.assign(d, { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) });
+}
+const inDistrict = (x, y, d) => inRect(x, y, d) && (!d.poly || inPoly(x, y, d.poly));
+function bDistrictAt(x, y) {
+  for (let i = B_DISTRICTS.length - 1; i > 0; i--) if (inDistrict(x, y, B_DISTRICTS[i])) return B_DISTRICTS[i];
+  return B_DISTRICTS[0];
+}
 const bOnBridge = y => B_BRIDGES.some(b => y >= b.y && y < b.y + b.h);
 const bInRiver = (x, y) => inRect(x, y, B_RIVER) && !bOnBridge(y);
 
 // ---------------------------------------------------------------------------
-// Metro lines are polylines; positions along them are distances `s`.
+// Metro lines are polylines; positions along them are distances `s`. A point
+// marked 'u' starts a stretch that runs underground (Namma Metro goes under
+// the old city: the Purple Line from City Railway Station to Cubbon Park, the
+// Green Line through Majestic, Chickpete and K.R. Market). Elevated stretches
+// run east-west or north-south so their viaducts stay crisp.
 // ---------------------------------------------------------------------------
 function setupLines() {
   for (const L of Object.values(B_LINES)) {
     L.segs = [];
     let s = 0;
     for (let i = 0; i < L.pts.length - 1; i++) {
-      const [x0, y0] = L.pts[i], [x1, y1] = L.pts[i + 1];
+      const [x0, y0, flag] = L.pts[i], [x1, y1] = L.pts[i + 1];
       const len = Math.hypot(x1 - x0, y1 - y0);
-      L.segs.push({ x0, y0, x1, y1, s0: s, len, axis: y0 === y1 ? 'h' : 'v' });
+      L.segs.push({ x0, y0, x1, y1, s0: s, len, under: flag === 'u', axis: y0 === y1 ? 'h' : x0 === x1 ? 'v' : 'd' });
       s += len;
     }
     L.len = s;
@@ -54,7 +88,7 @@ function linePoint(L, s) {
   let g = L.segs[L.segs.length - 1];
   for (const seg of L.segs) if (s <= seg.s0 + seg.len) { g = seg; break; }
   const k = g.len ? (s - g.s0) / g.len : 0;
-  return { x: g.x0 + (g.x1 - g.x0) * k, y: g.y0 + (g.y1 - g.y0) * k, axis: g.axis };
+  return { x: g.x0 + (g.x1 - g.x0) * k, y: g.y0 + (g.y1 - g.y0) * k, axis: g.axis, under: g.under };
 }
 
 function lineProject(L, x, y) {
@@ -70,21 +104,24 @@ function lineProject(L, x, y) {
 
 setupLines();
 
-// Stations by id, with the spot on the footpath where you climb the stairs.
+// Stations by id, with the spot on the footpath where you climb the stairs
+// (or go down them, for the stations underground).
 const B_STATIONS = (() => {
   const out = {};
   for (const [lid, L] of Object.entries(B_LINES)) {
     for (const st of L.stations) {
       if (!out[st.id]) {
-        const axis = linePoint(L, st.s).axis;
-        const exit = B_INTERCHANGES[st.id] ? { ...B_INTERCHANGES[st.id] } : axis === 'h' ? { x: st.x, y: st.y + 28 } : { x: st.x + 26, y: st.y };
-        out[st.id] = { id: st.id, name: st.name, lines: [], ...exit };
+        const p = linePoint(L, st.s);
+        const exit = st.exit ? { x: st.exit[0], y: st.exit[1] } : p.under ? { x: st.x, y: st.y } : p.axis === 'h' ? { x: st.x, y: st.y + 28 } : { x: st.x + 26, y: st.y };
+        out[st.id] = { id: st.id, name: st.name, lines: [], under: p.under, ...exit };
       }
       out[st.id].lines.push(lid);
     }
   }
   return out;
 })();
+// Where two lines meet.
+const B_CHANGES = Object.keys(B_STATIONS).filter(id => B_STATIONS[id].lines.length > 1);
 
 // ---------------------------------------------------------------------------
 // Building the city.
@@ -93,9 +130,8 @@ function buildCity() {
   const sprites = {};
   for (const [k, fn] of Object.entries(B_ART)) if (fn.length === 0) sprites[k] = fn();
   sprites.buglerock = B_ART.rock();
-  sprites.stairsP = B_ART.stairs(B_LINES.purple.col);
-  sprites.stairsG = B_ART.stairs(B_LINES.green.col);
-  for (let i = 0; i < 6; i++) sprites[`jhouse${i}`] = bHouseJ(i);
+  for (const [lid, L] of Object.entries(B_LINES)) { sprites[`stairs-${lid}`] = B_ART.stairs(L.col); sprites[`entrance-${lid}`] = B_ART.entrance(L.col); }
+  for (let i = 0; i < 6; i++) sprites[`jhouse${i}`] = bHouseJ3D(i);
   for (let i = 0; i < 4; i++) sprites[`mhouse${i}`] = bHouseM(i);
   // Give the flat elevations depth: roofs and side walls.
   for (const k of Object.keys(sprites)) {
@@ -106,11 +142,12 @@ function buildCity() {
   for (const b of B_BUILDINGS) {
     if (!b.shop) continue;
     const key = b.shop.join();
-    if (!shops.has(key)) shops.set(key, bExtrude(B_ART.shop(...b.shop), B_DEPTH.shop[0]));
+    if (!shops.has(key)) shops.set(key, bShopHouse(...b.shop));
     b.img = shops.get(key);
   }
   for (const b of B_BUILDINGS) if (!b.img) b.img = sprites[b.spr];
   BL.spr = sprites;
+  fillRows(sprites, shops);
   BL.treeSpr = {};
   for (const kind of Object.keys(B_TREES)) BL.treeSpr[kind] = [0, 1, 2].map(i => bTree(kind, i * 31 + kind.length * 7));
 
@@ -122,8 +159,21 @@ function buildCity() {
   buildBlockedMask();
   placeTrees();
   placeLamps();
-  for (const [x, y] of [[2300, 1700], [2600, 1820], [2200, 2100], [2850, 2000], [2150, 2690], [2420, 2690], [2550, 2950], [1650, 1600], [1900, 1900], [1700, 600], [4000, 690], [1250, 3200]]) addStatic(sprites.bench, x, y);
-  for (const s of Object.values(B_STATIONS)) addStatic(s.lines.includes('green') && !s.lines.includes('purple') ? sprites.stairsG : sprites.stairsP, s.x + 14, s.y - 2);
+  for (const [x, y] of B_BENCHES) addStatic(sprites.bench, x, y);
+  for (const s of Object.values(B_STATIONS)) {
+    const lid = s.lines.includes('purple') ? 'purple' : s.lines[0];
+    if (s.under) addStatic(sprites[`entrance-${lid}`], s.x, s.y - 3, { entrance: s });
+    else addStatic(sprites[`stairs-${lid}`], s.x + 14, s.y - 2);
+  }
+  for (const a of B_AUTO_STANDS) addStatic(sprites.autostand, a.x - 16, a.y - 6);
+  for (const g of B_RSEGS) {
+    if (g.axis !== 'v' || g.road.dirt) continue;
+    const top = Math.min(g.y0, g.y1), bot = Math.max(g.y0, g.y1);
+    if (B_RAIL.y > top && B_RAIL.y < bot && g.x0 > B_RAIL.x0 && g.x0 < B_RAIL.x1) {
+      addStatic(sprites.boom, g.x0 - g.hw - 5, B_RAIL.y - 10);
+      addStatic(sprites.boom, g.x0 + g.hw + 5, B_RAIL.y + 13);
+    }
+  }
 
   BL.buckets = new Map();
   for (const s of BL.statics) {
@@ -140,26 +190,115 @@ function buildCity() {
   BL.built = true;
 }
 
+// Where a building's picture is drawn, and the strip along its front.
+function bPicRect(b) {
+  const w = b.img.width;
+  return { x: Math.round(b.x - (b.img.fw || w) / 2), y: b.y - b.img.height + 1, w, h: b.img.height };
+}
+function bFrontRect(b) {
+  const p = bPicRect(b);
+  return { x: p.x + 4, y: b.y - 8, w: (b.img.fw || p.w) - 8, h: 8 };
+}
+const rectsHit = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+
+// ---------------------------------------------------------------------------
+// Everyday buildings: the rows in B_ROWS, built only where each one fits. A
+// spot is skipped if the building would stand on a road or in water, hide a
+// road or another building's front behind its picture, or block a stop, a
+// postcard or a person. Parks stay parks.
+// ---------------------------------------------------------------------------
+const B_PARKS = ['Cubbon Park', 'Lalbagh', 'Sankey Tank', 'Race Course', 'Bangalore Palace', 'Vidhana Soudha', 'Chinnaswamy Stadium', 'High Grounds'];
+function fillRows(sprites, shopCache) {
+  const grid = new Map();
+  const cells = r => { const out = []; for (let gy = Math.floor(r.y / 256); gy <= Math.floor((r.y + r.h) / 256); gy++) for (let gx = Math.floor(r.x / 256); gx <= Math.floor((r.x + r.w) / 256); gx++) out.push(`${gx},${gy}`); return out; };
+  const add = b => { const r = bPicRect(b); for (const k of cells({ x: r.x - 8, y: r.y, w: r.w + 16, h: r.h + 8 })) { if (!grid.has(k)) grid.set(k, []); grid.get(k).push(b); } };
+  for (const b of B_BUILDINGS) if (b.fw) add(b);
+  const keep = [
+    ...B_POSTCARDS.filter(p => !p.ride).map(p => [p.x, p.y, 26]), ...Object.values(B_STATIONS).map(s => [s.x, s.y, 36]),
+    ...B_STEAM_STOPS.map(s => [s.exit.x, s.exit.y, 40]), ...B_NPCS.map(n => [n.x, n.y, 20]), ...B_AUTO_STANDS.map(a => [a.x, a.y, 40]),
+    ...B_HIDDEN.map(h => [h.x, h.y, 16]), ...B_BENCHES.map(([x, y]) => [x, y, 14]), ...B_COWS.map(([x, y]) => [x, y, 22]),
+  ];
+  const ells = [...B_LAKES.map(l => [l, l.rx + 22, l.ry + 20]), [B_STADIUM, B_STADIUM.rx + 16, B_STADIUM.ry + 16], [B_TRACK, B_TRACK.rx + 14, B_TRACK.ry + 14], [B_CLOCK, B_CLOCK.r + 14, B_CLOCK.r + 14], ...B_CIRCLES.map(c => [c, c.r + 12, c.r + 12])];
+  const bands = [{ x: B_RAIL.x0, y: RAIL_Y - 34, w: B_RAIL.x1 - B_RAIL.x0, h: 80 }, ...B_PLATFORMS.map(p => ({ x: p.x - 4, y: p.y - 4, w: p.w + 8, h: p.h + 8 }))];
+  for (const L of Object.values(B_LINES)) for (const g of L.segs) if (!g.under) bands.push(g.axis === 'h' ? { x: Math.min(g.x0, g.x1) - 10, y: g.y0 - 48, w: Math.abs(g.x1 - g.x0) + 20, h: 64 } : { x: g.x0 - 24, y: Math.min(g.y0, g.y1) - 48, w: 48, h: Math.abs(g.y1 - g.y0) + 64 });
+  const fits = c => {
+    const fp = { x: c.x - c.fw / 2, y: c.y - c.fd, w: c.fw, h: c.fd };
+    if (fp.x < 6 || fp.y < 6 || fp.x + fp.w > BW - 6 || c.y > BH - 6) return false;
+    const pr = bPicRect(c), above = { x: pr.x, y: pr.y, w: pr.w, h: fp.y - pr.y };
+    const pts = [[fp.x, fp.y], [fp.x + fp.w, fp.y], [fp.x, fp.y + fp.h], [fp.x + fp.w, fp.y + fp.h], [c.x, fp.y + fp.h / 2]];
+    for (const [x, y] of pts) {
+      const d = bDistrictAt(x, y).name;
+      if (B_PARKS.includes(d) || (d === 'Malgudi') !== !!c.malgudi) return false;
+    }
+    if (fp.x < B_RIVER.x + B_RIVER.w + 12 && fp.x + fp.w > B_RIVER.x - 12) return false;
+    const grid9 = [];
+    for (const kx of [0, 0.5, 1]) for (const ky of [0, 0.5, 1]) grid9.push([fp.x + fp.w * kx, fp.y + fp.h * ky]);
+    for (const [e, rx, ry] of ells) if (grid9.some(([x, y]) => inEll(x, y, e, rx, ry)) || inRect(e.x, e.y, fp)) return false;
+    for (const b of bands) if (rectsHit(fp, b)) return false;
+    for (const [x, y, r] of keep) if (x > fp.x - r && x < fp.x + fp.w + r && y > fp.y - r && y < c.y + r) return false;
+    for (const g of B_RSEGS) {
+      if (g.bx1 < pr.x - 20 || g.bx0 > pr.x + pr.w + 20 || g.by1 < pr.y - 20 || g.by0 > c.y + 20) continue;
+      if (rectSegDist(fp, g) < g.hw + 7) return false;
+      if (above.h > 0 && rectSegDist(above, g) < g.hw - 2) return false;
+    }
+    const fr = bFrontRect(c);
+    for (const k of cells({ x: pr.x - 8, y: pr.y, w: pr.w + 16, h: pr.h + 8 })) for (const o of grid.get(k) || []) {
+      if (rectsHit(fp, { x: o.x - o.fw / 2 - 4, y: o.y - o.fd - 4, w: o.fw + 8, h: o.fd + 8 })) return false;
+      if (o.y < c.y && rectsHit(pr, bFrontRect(o))) return false;
+      if (o.y > c.y && rectsHit(bPicRect(o), fr)) return false;
+    }
+    return true;
+  };
+  let n = 0, seed = 0;
+  const make = (kind, x, base, under, malgudi) => {
+    let b;
+    if (kind.shop) {
+      const [text, wall, board, awning] = kind.shop;
+      const key = [wall, board, awning, seed % 7, kind.style].join();
+      if (!shopCache.has(key)) shopCache.set(key, bShopHouse(wall, board, awning, seed % 7, kind.style));
+      b = { spr: 'shop', fw: 60, fd: 26, mcol: board, img: shopCache.get(key), signs: [{ anchor: 'sign', text, size: 4.2, color: '#ffffff' }] };
+    } else {
+      const v = { jhouse: 6, mhouse: 4, apartment: 3, office: 3 }[kind];
+      const spr = `${kind}${(n + seed) % v}`, img = sprites[spr];
+      b = { spr, img, fw: kind === 'office' ? img.fw - 4 : { jhouse: 44, mhouse: 40, apartment: 64 }[kind], fd: { jhouse: 18, mhouse: 16, apartment: 30, office: 40 }[kind], mcol: { jhouse: '#e9c9a8', mhouse: '#b9573a', apartment: '#e9c9a8', office: '#7fb3c4' }[kind] };
+      if (kind === 'jhouse') b.house = 'j';
+      if (kind === 'mhouse') b.house = 'm';
+    }
+    b.x = Math.round(x + b.fw / 2);
+    b.y = Math.round(base !== undefined ? base : under + b.img.height - 6);
+    if (malgudi) b.malgudi = true;
+    return b;
+  };
+  const row = (x0, x1, kinds, gap, base, under, malgudi) => {
+    let x = x0, i = 0;
+    while (x < x1) {
+      const b = make(kinds[i % kinds.length], x, base, under, malgudi);
+      if (x + b.fw > x1 + 2) break;
+      if (fits(b)) { B_BUILDINGS.push(b); add(b); x += b.fw + gap; i++; n++; seed++; } else { x += 10; seed++; }
+    }
+  };
+  for (const R of B_ROWS) {
+    const malgudi = (R.area ? R.area.x + R.area.w : R.x1) <= B_RIVER.x;
+    if (!R.area) { row(R.x0, R.x1, R.kinds, R.gap === undefined ? 4 : R.gap, R.base, R.under, malgudi); continue; }
+    const tallest = Math.max(...R.kinds.map(k => make(k, 0, 0, 0).img.height));
+    const step = tallest + 10;
+    let k = 0;
+    for (let y = R.area.y + tallest; y <= R.area.y + R.area.h; y += step) {
+      const kinds = R.kinds.map((_, i) => R.kinds[(i + k) % R.kinds.length]);
+      row(R.area.x + (k % 2) * 18, R.area.x + R.area.w, kinds, R.gap === undefined ? 12 : R.gap, y, undefined, malgudi);
+      k++;
+    }
+  }
+}
+
 function addStatic(img, x, base, extra = {}) {
   BL.statics.push({ kind: 'img', img, x: Math.round(x - img.width / 2), y: base - img.height + 1, base, w: img.width, h: img.height, ...extra });
 }
 
-// Laterite paths through the parks.
-const B_PATHS = [
-  { x0: 2064, y0: 1760, x1: 3006, y1: 1760, w: 9 },
-  { x0: 2560, y0: 1414, x1: 2560, y1: 2286, w: 9 },
-  { x0: 2100, y0: 2260, x1: 2480, y1: 1900, w: 8 },
-  { x0: 2064, y0: 2120, x1: 3006, y1: 2120, w: 8 },
-  { x0: 1514, y0: 2660, x1: 3006, y1: 2660, w: 9 },
-  { x0: 2050, y0: 2314, x1: 2050, y1: 3046, w: 9 },
-  { x0: 2050, y0: 2760, x1: 1820, y1: 2940, w: 8 },
-  { x0: 1600, y0: 1500, x1: 1950, y1: 1500, w: 8 },
-  { x0: 1775, y0: 1730, x1: 1775, y1: 2200, w: 8 },
-];
-function segDist(x, y, p) {
-  const dx = p.x1 - p.x0, dy = p.y1 - p.y0;
-  const k = clamp(((x - p.x0) * dx + (y - p.y0) * dy) / (dx * dx + dy * dy), 0, 1);
-  return Math.hypot(x - (p.x0 + dx * k), y - (p.y0 + dy * k));
+// Walks along a segment in steps, calling fn(x, y) at each.
+function alongSeg(x0, y0, x1, y1, step, fn) {
+  const len = Math.hypot(x1 - x0, y1 - y0);
+  for (let i = 0; i <= len; i += step) fn(x0 + (x1 - x0) * i / len, y0 + (y1 - y0) * i / len);
 }
 
 // A coarse mask of places where trees and fish must not go.
@@ -171,7 +310,7 @@ function buildBlockedMask() {
       for (let cx = Math.max(0, Math.floor(x0 / C)); cx <= Math.min(gw - 1, Math.floor(x1 / C)); cx++) m[cy * gw + cx] = 1;
   };
   const markEll = (e, rx, ry) => mark(e.x - rx, e.y - ry, e.x + rx, e.y + ry);
-  for (const r of B_ROADS) mark(r.x - 8, r.y - 8, r.x + r.w + 8, r.y + r.h + 8);
+  for (const g of B_RSEGS) { const r = g.hw + 8; alongSeg(g.x0, g.y0, g.x1, g.y1, 4, (x, y) => mark(x - r, y - r, x + r, y + r)); }
   for (const b of B_BUILDINGS) {
     const front = b.house || !b.mcol ? 10 : 34;
     mark(b.x - b.img.width / 2 - 4, b.y - b.img.height * 0.55, b.x + b.img.width / 2 + 4, b.y + front);
@@ -181,15 +320,14 @@ function buildBlockedMask() {
   markEll(B_STADIUM, B_STADIUM.rx + 12, B_STADIUM.ry + 12);
   markEll(B_TRACK, B_TRACK.rx + 10, B_TRACK.ry + 10);
   markEll(B_CLOCK, B_CLOCK.r + 10, B_CLOCK.r + 10);
-  mark(0, RAIL_Y - 30, 1500, RAIL_Y + 44);
-  for (const p of B_PATHS) {
-    const len = Math.hypot(p.x1 - p.x0, p.y1 - p.y0);
-    for (let i = 0; i <= len; i += 6) { const x = p.x0 + (p.x1 - p.x0) * i / len, y = p.y0 + (p.y1 - p.y0) * i / len; mark(x - 8, y - 8, x + 8, y + 8); }
-  }
-  for (const L of Object.values(B_LINES)) for (const g of L.segs) mark(Math.min(g.x0, g.x1) - 14, Math.min(g.y0, g.y1) - 40, Math.max(g.x0, g.x1) + 14, Math.max(g.y0, g.y1) + 14);
+  mark(B_RAIL.x0, B_RAIL.y - 30, B_RAIL.x1, B_RAIL.y + 44);
+  for (const p of B_PATHS) alongSeg(p.x0, p.y0, p.x1, p.y1, 6, (x, y) => mark(x - 8, y - 8, x + 8, y + 8));
+  for (const L of Object.values(B_LINES)) for (const g of L.segs) if (!g.under) mark(Math.min(g.x0, g.x1) - 14, Math.min(g.y0, g.y1) - 40, Math.max(g.x0, g.x1) + 14, Math.max(g.y0, g.y1) + 14);
   for (const st of Object.values(B_STATIONS)) mark(st.x - 30, st.y - 30, st.x + 30, st.y + 20);
   for (const n of B_NPCS) mark(n.x - 24, n.y - 24, n.x + 24, n.y + 16);
   for (const pc of B_POSTCARDS) mark(pc.x - 22, pc.y - 22, pc.x + 22, pc.y + 16);
+  for (const a of B_AUTO_STANDS) mark(a.x - 40, a.y - 24, a.x + 24, a.y + 16);
+  for (const h of B_HIDDEN) mark(h.x - 12, h.y - 12, h.x + 12, h.y + 8);
   BL.mask = { m, C, gw, gh };
 }
 const bMasked = (x, y) => x < 0 || y < 0 || x >= BW || y >= BH || BL.mask.m[Math.floor(y / BL.mask.C) * BL.mask.gw + Math.floor(x / BL.mask.C)] === 1;
@@ -200,6 +338,7 @@ function placeTrees() {
   const near = new Map();
   const tryTree = (kind, x, y, spacing = 26, force = false) => {
     if (!force && bMasked(x, y)) return false;
+    if (force && (bRoadAt(x, y, 2) || bSolid0(x, y))) return false;
     const cx = Math.floor(x / 32), cy = Math.floor(y / 32);
     for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (const p of near.get(`${cx + i},${cy + j}`) || []) if (Math.abs(p.x - x) < spacing && Math.abs(p.y - y) < spacing * 0.7) return false;
     const key = `${cx},${cy}`;
@@ -210,55 +349,55 @@ function placeTrees() {
     if (kind === 'pink') BL.pinkTrees.push({ x, y, h: img.height });
     return true;
   };
-  const mix = {
-    Malgudi: [['coconut', 5], ['rain', 3], ['gulmohar', 2]],
-    Malleswaram: [['coconut', 3], ['rain', 3], ['pink', 1]],
-    'Sankey Tank': [['rain', 4], ['pink', 2], ['gulmohar', 1]],
-    'Bangalore Palace': [['rain', 5], ['royal', 1], ['gulmohar', 1]],
-    'Commercial Street': [['rain', 1]],
-    Ulsoor: [['rain', 4], ['coconut', 2], ['pink', 1]],
-    Majestic: [['rain', 2], ['coconut', 1]],
-    'Race Course': [['rain', 5], ['gulmohar', 2]],
-    'Vidhana Soudha': [['rain', 5], ['gulmohar', 2], ['pink', 2], ['royal', 1]],
-    Chinnaswamy: [['rain', 5], ['gulmohar', 1], ['pink', 1]],
-    Indiranagar: [['rain', 3], ['pink', 2]],
-    'Freedom Park': [['rain', 4], ['gulmohar', 2]],
-    'Cubbon Park': [['rain', 5], ['pink', 3], ['bamboo', 1], ['gulmohar', 2]],
-    'MG Road': [['rain', 2], ['pink', 1]],
-    'K.R. Market': [['rain', 1], ['coconut', 1]],
-    Basavanagudi: [['rain', 3], ['coconut', 2], ['pink', 1]],
-    Lalbagh: [['rain', 4], ['pink', 3], ['royal', 2], ['gulmohar', 2]],
-    Jayanagar: [['pink', 3], ['coconut', 1], ['rain', 1]],
-    Koramangala: [['rain', 2], ['pink', 1], ['coconut', 1]],
-  };
-  // Pink tabebuia avenues first: Jayanagar streets, Cubbon Park's path.
-  for (const y of [3246, 3274, 3416, 3444]) for (let x = 1540; x < 2990; x += 40) if (Math.abs(x - 2050) > 30 && Math.abs(x - 2550) > 20) tryTree('pink', x + (y === 3274 || y === 3444 ? 20 : 0), y, 22, true);
-  for (let x = 2080; x < 3000; x += 34) { tryTree('pink', x, 1752, 20); tryTree('pink', x + 17, 1774, 20); }
-  for (let y = 2340; y < 2650; y += 50) { tryTree('royal', 2030, y, 20); tryTree('royal', 2070, y, 20); }
-  for (let y = 20; y < BH; y += 22) tryTree(rnd() < 0.5 ? 'rain' : 'coconut', 14 + rnd() * 30, y, 18);
+  // Avenues first: pink tabebuias in Jayanagar and Cubbon Park, royal palms in Lalbagh.
+  for (const row of B_TREE_ROWS) {
+    let i = 0;
+    alongSeg(row.x0, row.y0, row.x1, row.y1, row.step, (x, y) => {
+      const k = row.kinds ? row.kinds[i % row.kinds.length] : row.kind;
+      tryTree(k === 'mix' ? (rnd() < 0.5 ? 'rain' : 'coconut') : k, Math.round(x + (row.zig && i % 2 ? row.zig : 0) + (row.jitter ? (rnd() - 0.5) * row.jitter : 0)), Math.round(y), row.spacing || 20, row.force);
+      i++;
+    });
+  }
   for (const d of B_DISTRICTS) {
-    const kinds = mix[d.name];
+    const kinds = d.trees;
+    if (!kinds) continue;
     const total = kinds.reduce((s, k) => s + k[1], 0);
-    const count = Math.round(d.w * d.h / (d.name === 'Cubbon Park' || d.name === 'Lalbagh' ? 4200 : d.name === 'Malgudi' ? 9000 : 12000));
+    const count = Math.round(d.w * d.h / (d.density || 12000));
     for (let n = 0, tries = 0; n < count && tries < count * 30; tries++) {
       const x = d.x + 10 + rnd() * (d.w - 20), y = d.y + 20 + rnd() * (d.h - 24);
+      if (bDistrictAt(x, y) !== d) continue;
       let pr = rnd() * total, kind = kinds[0][0];
       for (const [k, w] of kinds) { pr -= w; if (pr <= 0) { kind = k; break; } }
       if (tryTree(kind, Math.round(x), Math.round(y))) n++;
     }
   }
 }
+// Solid before the collision grid exists: buildings, water and the river.
+function bSolid0(x, y) {
+  for (const b of B_BUILDINGS) if (b.fw && x > b.x - b.fw / 2 - 2 && x < b.x + b.fw / 2 + 2 && y > b.y - b.fd - 2 && y < b.y + 4) return true;
+  return B_LAKES.some(l => inEll(x, y, l, l.rx + 4, l.ry + 4)) || bInRiver(x, y);
+}
 
 function placeLamps() {
   const img = BL.spr.lamp;
   BL.lamps = [];
-  const lamp = (x, y) => { addStatic(img, x, y, { lamp: true }); BL.lamps.push({ x, y: y - 24 }); };
-  for (const r of B_ROADS) {
-    if (r.dirt || r.small) continue;
-    if (r.w > r.h) for (let x = r.x + 40; x < r.x + r.w - 20; x += 96) { lamp(x, r.y - 3); lamp(x + 48, r.y + r.h + 7); }
-    else for (let y = r.y + 40; y < r.y + r.h - 20; y += 96) { lamp(r.x - 4, y); lamp(r.x + r.w + 4, y + 48); }
+  for (const g of B_RSEGS) {
+    const r = g.road;
+    if ((r.dirt || r.small) && !r.lamps) continue;
+    const step = r.lamps || 96, off = g.hw + (g.axis === 'h' ? 3 : 4);
+    let i = 0;
+    // Staggered: one side, then the other, `step` apart on each side.
+    alongSeg(g.x0, g.y0, g.x1, g.y1, step / 2, (x, y) => {
+      const side = i++ % 2 ? 1 : -1;
+      if (Math.hypot(x - g.x0, y - g.y0) < 20 || Math.hypot(x - g.x1, y - g.y1) < 20) return;
+      const lx = Math.round(x + g.nx * off * side);
+      let ly = Math.round(y + g.ny * off * side);
+      if (g.axis === 'h' && ly > y) ly += 4;
+      if (bSolid0(lx, ly) || B_RSEGS.some(o => o.road !== r && segDist(lx, ly, o) < o.hw + 3)) return;
+      addStatic(img, lx, ly, { lamp: true });
+      BL.lamps.push({ x: lx, y: ly - 24 });
+    });
   }
-  for (let x = 60; x < 740; x += 120) lamp(x, 1383);
 }
 
 // ---------------------------------------------------------------------------
@@ -272,6 +411,10 @@ function buildGroundOps() {
   const rect = (col, x, y, w, h, detail = false) => op(x, y, x + w, y + h, c => { c.fillStyle = col; c.fillRect(x, y, w, h); }, detail);
   const ell = (col, e, rx, ry) => op(e.x - rx, e.y - ry, e.x + rx, e.y + ry, c => { c.fillStyle = col; pixEllipse(c, e.x, e.y, Math.round(rx), Math.round(ry)); });
   const disc = (col, x, y, r) => op(x - r, y - r, x + r, y + r, c => { c.fillStyle = col; pixDisc(c, x, y, r); });
+  const poly = (col, pts) => {
+    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+    op(Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys), c => polyFill(c, pts, col));
+  };
   const ring = (col, e, rx, ry) => op(e.x - rx - 1, e.y - ry - 1, e.x + rx + 1, e.y + ry + 1, c => {
     c.fillStyle = col;
     for (let a = 0; a < Math.PI * 2; a += 0.6 / Math.max(rx, ry)) c.fillRect(Math.round(e.x + Math.cos(a) * rx), Math.round(e.y + Math.sin(a) * ry), 1, 1);
@@ -292,35 +435,39 @@ function buildGroundOps() {
   };
 
   rect('#5d8a3e', 0, 0, BW, BH);
-  for (const d of B_DISTRICTS) rect(d.ground, d.x, d.y, d.w, d.h);
+  for (const d of B_DISTRICTS) if (d.poly) poly(d.ground, d.poly); else rect(d.ground, d.x, d.y, d.w, d.h);
+  // Malgudi: earth with grass patches, a forest edge, paddy fields in the south.
+  const M = B_DISTRICTS.find(d => d.name === 'Malgudi');
   rect('#5a873b', 0, 0, 60, BH);
-  // Malgudi: earth with grass patches, paddy fields in the south.
-  for (let i = 0; i < 420; i++) ell(rnd() < 0.7 ? '#a9a865' : '#93a35a', { x: 20 + rnd() * 720, y: rnd() * BH }, 6 + Math.round(rnd() * 16), 3 + Math.round(rnd() * 8));
-  rect('#8fbf4a', 0, 2900, 760, 700);
+  for (let i = 0; i < M.w * M.h / 6400; i++) ell(rnd() < 0.7 ? '#a9a865' : '#93a35a', { x: M.x + 20 + rnd() * (M.w - 40), y: M.y + rnd() * M.h }, 6 + Math.round(rnd() * 16), 3 + Math.round(rnd() * 8));
+  const P = B_PADDY;
+  rect('#8fbf4a', P.x, P.y, P.w, P.h);
   const paddy = [];
-  for (let y = 2902; y < BH; y += 3) paddy.push([0, y, 760, 1, '#7aa83e']);
-  for (let x = 0; x < 760; x += 56) paddy.push([x, 2900, 3, 700, '#a68a5a']);
-  for (let y = 2960; y < BH; y += 120) paddy.push([0, y, 760, 3, '#a68a5a']);
+  for (let y = P.y + 2; y < P.y + P.h; y += 3) paddy.push([P.x, y, P.w, 1, '#7aa83e']);
+  for (let x = P.x; x < P.x + P.w; x += 56) paddy.push([x, P.y, 3, P.h, '#a68a5a']);
+  for (let y = P.y + 60; y < P.y + P.h; y += 120) paddy.push([P.x, y, P.w, 3, '#a68a5a']);
   specks(paddy, false);
-  // Grass verges in the busier districts.
-  for (const name of ['Jayanagar', 'Majestic', 'K.R. Market', 'Koramangala', 'Malleswaram', 'Basavanagudi', 'Commercial Street', 'Indiranagar']) {
-    const d = B_DISTRICTS.find(x => x.name === name);
-    for (let i = 0; i < d.w * d.h / 9000; i++) ell('#9db86a', { x: d.x + 10 + rnd() * (d.w - 20), y: d.y + 10 + rnd() * (d.h - 20) }, 6 + Math.round(rnd() * 10), 3 + Math.round(rnd() * 4));
-  }
-  // Mowed stripes on the Vidhana Soudha and Palace lawns, tiles on plazas.
-  const stripes = [];
-  for (let y = 774; y < 1386; y += 16) stripes.push([2064, y, 942, 8, '#86b45b']);
-  for (let y = 0; y < 746; y += 16) stripes.push([2064, y, 942, 8, '#86b45b']);
-  specks(stripes, false);
-  rect('#d9d2c2', 2480, 1370, 320, 16);
+  // Grass verges in the busier districts, paving on the shopping streets.
   const tiles = [];
-  for (const d of B_DISTRICTS.filter(x => ['MG Road', 'Commercial Street', 'Indiranagar', 'Koramangala'].includes(x.name))) {
-    for (let x = d.x; x < d.x + d.w; x += 10) tiles.push([x, d.y, 1, d.h, '#b5a992']);
-    for (let y = d.y; y < d.y + d.h; y += 10) tiles.push([d.x, y, d.w, 1, '#b5a992']);
+  for (const d of B_DISTRICTS) {
+    if (d.verges) for (let i = 0; i < d.w * d.h / 9000; i++) {
+      const x = d.x + 10 + rnd() * (d.w - 20), y = d.y + 10 + rnd() * (d.h - 20);
+      if (bDistrictAt(x, y) === d) ell('#9db86a', { x, y }, 6 + Math.round(rnd() * 10), 3 + Math.round(rnd() * 4));
+    }
+  }
+  for (const pz of B_PLAZAS) {
+    rect(pz.col || '#c9bda6', pz.x, pz.y, pz.w, pz.h);
+    if (pz.col) continue;
+    for (let x = pz.x; x < pz.x + pz.w; x += 10) tiles.push([x, pz.y, 1, pz.h, '#b5a992']);
+    for (let y = pz.y; y < pz.y + pz.h; y += 10) tiles.push([pz.x, y, pz.w, 1, '#b5a992']);
   }
   specks(tiles);
+  // Mowed stripes on the big lawns.
+  const stripes = [];
+  for (const l of B_LAWNS) for (let y = l.y; y < l.y + l.h; y += 16) stripes.push([l.x, y, l.w, Math.min(8, l.y + l.h - y), '#86b45b']);
+  specks(stripes, false);
   // Flower beds.
-  for (const [x, y] of [[2490, 1340], [2740, 1340], [2400, 2700], [2480, 2700], [2400, 2730], [2480, 2730], [1600, 2400], [1650, 2440], [2700, 2400], [2560, 2400], [2300, 1820], [2800, 2200], [1700, 1560], [2420, 680], [2620, 680]]) {
+  for (const [x, y] of B_FLOWERBEDS) {
     rect('#5a3a26', x, y, 50, 18);
     const dots = [];
     for (let i = 0; i < 60; i++) dots.push([x + 1 + Math.floor(rnd() * 48), y + 1 + Math.floor(rnd() * 16), 1, 1, ['#d8433b', '#f4a3b8', '#ffffff', '#f2c94c', '#c3a0ec'][Math.floor(rnd() * 5)]]);
@@ -392,71 +539,96 @@ function buildGroundOps() {
     });
   }
 
-  // The Sarayu, its ghats and the rail line.
+  // The Sarayu, its ghats and the station platforms.
   const R = B_RIVER;
   rect('#c9b48a', R.x - 6, 0, R.w + 12, BH);
   rect('#4a8db5', R.x, 0, R.w, BH);
   rect('#5a9cc2', R.x + 8, 0, R.w - 16, BH);
   const ripples = [];
-  for (let i = 0; i < 500; i++) ripples.push([R.x + 4 + Math.floor(rnd() * (R.w - 8)), Math.floor(rnd() * BH), 1, 4 + Math.floor(rnd() * 6), '#9ccbe2']);
+  for (let i = 0; i < BH / 7; i++) ripples.push([R.x + 4 + Math.floor(rnd() * (R.w - 8)), Math.floor(rnd() * BH), 1, 4 + Math.floor(rnd() * 6), '#9ccbe2']);
   specks(ripples);
-  for (let k = 0; k < 8; k++) rect(k % 2 ? '#a39b8a' : '#c9c2b6', R.x - 20 + k * 3, 1720 - k, 3, 100 + k * 2);
-  rect('#bdb5a5', 200, 1036, 280, 14); rect('#e8d36a', 200, 1049, 280, 1);
-  rect('#bdb5a5', 1000, 1068, 480, 32); rect('#e8d36a', 1000, 1068, 480, 1);
-  const sleepers = [];
-  for (let x = 40; x < 1480; x += 5) sleepers.push([x, RAIL_Y - 6, 3, 13, '#6b4a32']);
-  specks(sleepers, false);
-  rect('#8a8f96', 40, RAIL_Y - 4, 1440, 1); rect('#8a8f96', 40, RAIL_Y + 3, 1440, 1);
-  rect('#c9ced2', 40, RAIL_Y - 5, 1440, 1); rect('#c9ced2', 40, RAIL_Y + 2, 1440, 1);
+  for (let k = 0; k < 8; k++) rect(k % 2 ? '#a39b8a' : '#c9c2b6', R.x - 20 + k * 3, B_GHATS.y - k, 3, 100 + k * 2);
+  for (const pf of B_PLATFORMS) { rect('#bdb5a5', pf.x, pf.y, pf.w, pf.h); rect('#e8d36a', pf.x, pf.edge === 'top' ? pf.y : pf.y + pf.h - 1, pf.w, 1); }
 
-  // Roads: footpaths, carriageways, then the paint.
-  const asph = B_ROADS.filter(r => !r.dirt);
-  for (const rd of B_ROADS.filter(r => r.dirt)) {
-    rect('#b39066', rd.x, rd.y, rd.w, rd.h);
+  // Roads: footpaths, kerbs, carriageways, then the paint. Pieces that run
+  // east-west or north-south are drawn as rectangles with a paved footpath;
+  // slanting ones as polygons with rounded joins.
+  for (const rd of B_ROADS.filter(r => r.dirt)) for (const g of B_RSEGS.filter(s => s.road === rd)) {
+    rect('#b39066', g.bx0, g.by0, g.bx1 - g.bx0, g.by1 - g.by0);
     const ruts = [];
-    for (let i = 0; i < rd.w * rd.h / 30; i++) ruts.push([rd.x + Math.floor(rnd() * rd.w), rd.y + Math.floor(rnd() * rd.h), 2, 1, '#9e7c52']);
+    const w = g.bx1 - g.bx0, h = g.by1 - g.by0;
+    for (let i = 0; i < w * h / 30; i++) ruts.push([g.bx0 + Math.floor(rnd() * w), g.by0 + Math.floor(rnd() * h), 2, 1, '#9e7c52']);
     specks(ruts);
-    if (rd.w > rd.h) { rect('#a3825a', rd.x, rd.y + 6, rd.w, 1); rect('#a3825a', rd.x, rd.y + rd.h - 7, rd.w, 1); }
-    else { rect('#a3825a', rd.x + 7, rd.y, 1, rd.h); rect('#a3825a', rd.x + rd.w - 8, rd.y, 1, rd.h); }
+    if (g.axis === 'h') { rect('#a3825a', g.bx0, g.by0 + 6, w, 1); rect('#a3825a', g.bx0, g.by1 - 7, w, 1); }
+    else { rect('#a3825a', g.bx0 + 7, g.by0, 1, h); rect('#a3825a', g.bx1 - 8, g.by0, 1, h); }
   }
-  for (const rd of asph) {
-    const p = rd.small ? 4 : 6;
-    rect('#b9ae99', rd.x - p, rd.y - p, rd.w + p * 2, rd.h + p * 2);
+  const asph = B_RSEGS.filter(g => !g.road.dirt);
+  // A segment as a band `half` wide either side of its centre line, pushed
+  // out by `ext` at the ends where it joins the next piece of the same road.
+  const band = (g, half, col, ext) => {
+    const e0 = g.first ? 0 : ext, e1 = g.last ? 0 : ext;
+    const ax = g.x0 - g.ux * e0, ay = g.y0 - g.uy * e0, bx = g.x1 + g.ux * e1, by = g.y1 + g.uy * e1;
+    if (g.axis !== 'd') {
+      const x = Math.round(Math.min(ax, bx) - (g.axis === 'v' ? half : 0)), y = Math.round(Math.min(ay, by) - (g.axis === 'h' ? half : 0));
+      rect(col, x, y, Math.round(Math.abs(bx - ax) + (g.axis === 'v' ? half * 2 : 0)), Math.round(Math.abs(by - ay) + (g.axis === 'h' ? half * 2 : 0)));
+      return { x, y, w: Math.round(Math.abs(bx - ax) + (g.axis === 'v' ? half * 2 : 0)), h: Math.round(Math.abs(by - ay) + (g.axis === 'h' ? half * 2 : 0)) };
+    }
+    poly(col, [[ax + g.nx * half, ay + g.ny * half], [bx + g.nx * half, by + g.ny * half], [bx - g.nx * half, by - g.ny * half], [ax - g.nx * half, ay - g.ny * half]]);
+    if (!g.first) disc(col, Math.round(g.x0), Math.round(g.y0), Math.round(half));
+    if (!g.last) disc(col, Math.round(g.x1), Math.round(g.y1), Math.round(half));
+    return null;
+  };
+  for (const g of asph) {
+    const p = g.road.small ? 4 : 6;
+    const fp = band(g, g.hw + p, '#b9ae99', g.hw + p);
+    if (!fp) continue;
     const grid = [];
-    for (let x = rd.x - p; x < rd.x + rd.w + p; x += 6) grid.push([x, rd.y - p, 1, rd.h + p * 2, '#a99d88']);
-    for (let y = rd.y - p; y < rd.y + rd.h + p; y += 6) grid.push([rd.x - p, y, rd.w + p * 2, 1, '#a99d88']);
+    for (let x = fp.x; x < fp.x + fp.w; x += 6) grid.push([x, fp.y, 1, fp.h, '#a99d88']);
+    for (let y = fp.y; y < fp.y + fp.h; y += 6) grid.push([fp.x, y, fp.w, 1, '#a99d88']);
     specks(grid);
   }
   for (const c0 of B_CIRCLES) disc('#56595f', c0.x, c0.y, c0.r + 4);
-  for (const rd of asph) rect('#d8d2c4', rd.x - 1, rd.y - 1, rd.w + 2, rd.h + 2);
-  for (const rd of asph) rect(rd.small ? '#62656b' : '#56595f', rd.x, rd.y, rd.w, rd.h);
+  for (const g of asph) band(g, g.hw + 1, '#d8d2c4', g.hw + 1);
+  for (const g of asph) band(g, g.hw, g.road.small ? '#62656b' : '#56595f', g.hw);
   for (const c0 of B_CIRCLES) {
     disc('#56595f', c0.x, c0.y, c0.r);
     disc('#d8d2c4', c0.x, c0.y, c0.garden + 2);
     disc('#6fa04a', c0.x, c0.y, c0.garden);
   }
-  const onOther = (x, y, self) => asph.some(o => o !== self && inRect(x, y, o, 2)) || B_CIRCLES.some(c0 => Math.hypot(x - c0.x, y - c0.y) < c0.r + 2);
+  const onOther = (x, y, self) => asph.some(o => o.road !== self.road && segDist(x, y, o) < o.hw + 2) || B_CIRCLES.some(c0 => Math.hypot(x - c0.x, y - c0.y) < c0.r + 2);
   const paint = [];
-  for (const rd of asph) {
-    if (rd.small) continue;
-    if (rd.w > rd.h) { const y = rd.y + rd.h / 2; for (let x = rd.x; x < rd.x + rd.w; x += 14) if (!onOther(x, y, rd) && !onOther(x + 8, y, rd)) paint.push([x, y, 8, 1, '#ece6d4']); }
-    else { const x = rd.x + rd.w / 2; for (let y = rd.y; y < rd.y + rd.h; y += 14) if (!onOther(x, y, rd) && !onOther(x, y + 8, rd)) paint.push([x, y, 1, 8, '#ece6d4']); }
+  for (const g of asph) {
+    if (g.road.small) continue;
+    for (let i = 4; i + 8 < g.len; i += 14) {
+      const x = g.x0 + g.ux * i, y = g.y0 + g.uy * i;
+      if (onOther(x, y, g) || onOther(x + g.ux * 8, y + g.uy * 8, g)) continue;
+      if (g.axis === 'h') paint.push([Math.round(Math.min(x, x + g.ux * 8)), Math.round(y), 8, 1, '#ece6d4']);
+      else if (g.axis === 'v') paint.push([Math.round(x), Math.round(Math.min(y, y + g.uy * 8)), 1, 8, '#ece6d4']);
+      else for (let k = 0; k < 8; k++) paint.push([Math.round(x + g.ux * k), Math.round(y + g.uy * k), 1, 1, '#ece6d4']);
+    }
   }
-  for (const h of asph.filter(r => r.w > r.h)) for (const v of asph.filter(r => r.h > r.w)) {
+  // Zebra crossings where east-west and north-south roads meet.
+  const rectOf = g => ({ x: g.bx0, y: g.by0, w: g.bx1 - g.bx0, h: g.by1 - g.by0 });
+  for (const hg of asph.filter(g => g.axis === 'h')) for (const vg of asph.filter(g => g.axis === 'v')) {
+    const h = rectOf(hg), v = rectOf(vg);
     if (v.x + v.w < h.x || v.x > h.x + h.w || h.y + h.h < v.y - 2 || h.y > v.y + v.h + 2) continue;
-    for (const x0 of [v.x - 12, v.x + v.w + 4]) if (inRect(x0, h.y + 2, h)) for (let y = h.y + 2; y < h.y + h.h - 2; y += 4) paint.push([x0, y, 8, 2, '#ece6d4']);
-    for (const y0 of [h.y - 12, h.y + h.h + 4]) if (inRect(v.x + 2, y0, v)) for (let x = v.x + 2; x < v.x + v.w - 2; x += 4) paint.push([x, y0, 2, 8, '#ece6d4']);
+    for (const x0 of [v.x - 12, v.x + v.w + 4]) if (inRect(x0, h.y + 2, h) && inRect(x0 + 8, h.y + 2, h)) for (let y = h.y + 2; y < h.y + h.h - 2; y += 4) paint.push([x0, y, 8, 2, '#ece6d4']);
+    for (const y0 of [h.y - 12, h.y + h.h + 4]) if (inRect(v.x + 2, y0, v) && inRect(v.x + 2, y0 + 8, v)) for (let x = v.x + 2; x < v.x + v.w - 2; x += 4) paint.push([x, y0, 2, 8, '#ece6d4']);
   }
   specks(paint, false);
   // Bridges over the Sarayu.
   for (const b of B_BRIDGES) {
     rect('#9a9182', R.x - 4, b.y - 3, R.w + 8, 3); rect('#9a9182', R.x - 4, b.y + b.h, R.w + 8, 3);
-    if (b.h < 20 && b.y !== RAIL_Y - 8) rect('#a87a4c', R.x, b.y, R.w, b.h);
+    if (b.h < 20 && b.y !== B_RAIL.y - 8) rect('#a87a4c', R.x, b.y, R.w, b.h);
   }
-  rect('#6b4a32', R.x, RAIL_Y - 6, R.w, 13);
-  rect('#8a8f96', R.x, RAIL_Y - 4, R.w, 1); rect('#8a8f96', R.x, RAIL_Y + 3, R.w, 1);
+  // The railway, over everything it crosses: sleepers, then the two rails.
+  const sleepers = [];
+  for (let x = B_RAIL.x0; x < B_RAIL.x1; x += 5) sleepers.push([x, B_RAIL.y - 6, 3, 13, '#6b4a32']);
+  specks(sleepers, false);
+  for (const [dy, col] of [[-4, '#8a8f96'], [3, '#8a8f96'], [-5, '#c9ced2'], [2, '#c9ced2']]) rect(col, B_RAIL.x0, B_RAIL.y + dy, B_RAIL.x1 - B_RAIL.x0, 1);
   // Viaduct shadows.
   for (const L of Object.values(B_LINES)) for (const g of L.segs) {
+    if (g.under) continue;
     op(Math.min(g.x0, g.x1), Math.min(g.y0, g.y1) - 4, Math.max(g.x0, g.x1) + 14, Math.max(g.y0, g.y1) + 4, c => {
       c.globalAlpha = 0.16; c.fillStyle = '#000000';
       if (g.axis === 'h') c.fillRect(Math.min(g.x0, g.x1), g.y0 - 4, Math.abs(g.x1 - g.x0), 8);
@@ -563,9 +735,10 @@ function buildMini() {
   for (const b of B_BUILDINGS) {
     if (!b.mcol || !b.fw) continue;
     const top = (b.y - b.fd - b.img.height * 0.3) / 8, h = (b.fd + b.img.height * 0.3) / 8;
-    c.fillStyle = '#2b2220';
+    const plain = b.spr === 'shop' || b.house || /^(apartment|office)/.test(b.spr);
+    c.fillStyle = plain ? '#8a7e6e' : '#2b2220';
     c.fillRect(Math.round((b.x - b.fw / 2) / 8) - 1, Math.round(top) - 1, Math.ceil(b.fw / 8) + 2, Math.ceil(h) + 2);
-    c.fillStyle = b.mcol;
+    c.fillStyle = plain ? (b.house === 'm' ? '#c98a6a' : '#e6d9c2') : b.mcol;
     c.fillRect(Math.round((b.x - b.fw / 2) / 8), Math.round(top), Math.ceil(b.fw / 8), Math.ceil(h));
   }
   BL.mini = cv;
@@ -582,21 +755,31 @@ const B_VEH = {
 };
 const B_HONKS = ['HONK!', 'POM POM!', 'Side, side!', 'Beep beep!'];
 
-// India drives on the left: eastbound traffic keeps to the north side.
+// India drives on the left: every road piece has a lane each way, on the
+// left of its direction of travel. Vehicles are drawn side-on (axis 'h') or
+// end-on ('v'), whichever is closer to the way the road runs.
 const B_LANES = (() => {
   const out = [];
-  for (const r of B_ROADS) {
-    if (r.dirt || r.small) continue;
-    if (r.w > r.h) {
-      out.push({ road: r, axis: 'h', at: r.y + 10, dir: 1, from: r.x, to: r.x + r.w });
-      out.push({ road: r, axis: 'h', at: r.y + 21, dir: -1, from: r.x, to: r.x + r.w });
-    } else {
-      out.push({ road: r, axis: 'v', at: r.x + 21, dir: 1, from: r.y, to: r.y + r.h });
-      out.push({ road: r, axis: 'v', at: r.x + 7, dir: -1, from: r.y, to: r.y + r.h });
+  for (const g of B_RSEGS) {
+    if (g.road.dirt || g.road.small) continue;
+    const axis = Math.abs(g.ux) >= Math.abs(g.uy) ? 'h' : 'v';
+    for (const sd of [1, -1]) {
+      out.push({ seg: g, sd, axis, off: (axis === 'h' ? 5.5 : 7) * sd, shift: axis === 'h' ? 1.5 : 0, dir: Math.sign(axis === 'h' ? g.ux * sd : g.uy * sd), from: 0, to: g.len });
     }
   }
   return out;
 })();
+
+// A point on a lane's centre line, `p` along its road piece.
+function laneXY(L, p) {
+  const g = L.seg;
+  return { x: g.x0 + g.ux * p + g.nx * L.off, y: g.y0 + g.uy * p + g.ny * L.off + L.shift };
+}
+// Where something at (x, y) is relative to a lane: along it, and across it from its centre line.
+function laneFrame(L, x, y) {
+  const g = L.seg, ax = x - g.x0, ay = y - g.y0 - L.shift;
+  return { along: ax * g.ux + ay * g.uy, across: ax * g.nx + ay * g.ny - L.off };
+}
 
 function resetCityLife() {
   const rnd = seeded(42);
@@ -606,6 +789,7 @@ function resetCityLife() {
   for (const lane of B_LANES) {
     lane.cars = [];
     const span = lane.to - lane.from;
+    if (span < 90) continue;
     const n = Math.max(1, Math.round(span / 340));
     for (let i = 0; i < n; i++) {
       const type = types[Math.floor(rnd() * types.length)];
@@ -617,46 +801,57 @@ function resetCityLife() {
   }
   BL.trains = [];
   for (const [id, L] of Object.entries(B_LINES)) {
-    const st = L.stations;
+    const st = L.stations, mid = Math.floor(st.length / 2);
     BL.trains.push({ line: id, s: st[0].s, dir: 1, next: 1, state: 'dwell', t: 2, v: 0 });
     BL.trains.push({ line: id, s: st[st.length - 1].s, dir: -1, next: st.length - 2, state: 'dwell', t: 5, v: 0 });
-    BL.trains.push({ line: id, s: st[3].s, dir: 1, next: 4, state: 'dwell', t: 8, v: 0 });
+    BL.trains.push({ line: id, s: st[mid].s, dir: 1, next: mid + 1, state: 'dwell', t: 8, v: 0 });
   }
   BL.steam = { x: B_STEAM_STOPS[0].x, dir: 1, state: 'dwell', t: 6, v: 0, at: 0 };
   BL.horses = [0, 1, 2, 3, 4].map(i => ({ a: i * 0.35, v: 0.3 + i * 0.012, lane: i % 3, col: ['#6b4a32', '#3a2618', '#8a6a4a', '#d9d2c4', '#2b2220'][i], silk: ['#d8433b', '#f2c94c', '#5b8ee0', '#7cc35a', '#c3a0ec'][i] }));
   BL.ducks = [];
   for (const l of B_LAKES) for (let i = 0; i < Math.round(l.rx / 30); i++) BL.ducks.push({ lake: l, x: l.x + (rnd() - 0.5) * l.rx, y: l.y + (rnd() - 0.5) * l.ry, vx: 0, vy: 0, t: rnd() * 5, white: i % 3 === 0 });
   BL.boats = [0, 1, 2].map(i => ({ a: i * 2.1, v: 0.05 + i * 0.01, col: ['#f2c94c', '#d8433b', '#ffffff'][i] }));
-  BL.coracle = { y: 1600, dir: 1 };
-  BL.cart = { x: 160, dir: 1, y: 1410 };
-  BL.cows = [{ x: 425, y: 900, lying: true }, { x: 2552, y: 3330, lying: false }, { x: 980, y: 2600, lying: false }, { x: 600, y: 2600, lying: true }, { x: 1300, y: 560, lying: true }, { x: 3900, y: 3300, lying: false }];
-  BL.dogs = [{ x: 2300, y: 3430, tx: 2300, ty: 3430, t: 0, facing: 1, area: { x: 1540, y: 3250, w: 1440, h: 200 } }, { x: 3600, y: 2960, tx: 3600, ty: 2960, t: 0, facing: 1, area: { x: 3100, y: 2950, w: 1400, h: 40 } }];
+  BL.coracle = { y: B_CORACLE.y0, dir: 1 };
+  BL.cart = { x: B_CART.x0, dir: 1, y: B_CART.y };
+  BL.cows = B_COWS.map(([x, y, lying]) => ({ x, y, lying }));
+  BL.dogs = B_DOGS.map(a => ({ x: a.x + a.w / 2, y: a.y + a.h / 2, tx: a.x + a.w / 2, ty: a.y + a.h / 2, t: 0, facing: 1, area: a }));
   BL.pigeons = [];
-  for (const [x, y] of [[2640, 1378], [330, 1044], [2450, 1975], [2780, 3250], [1500, 1440], [1240, 1380], [1000, 2500], [990, 3320]]) {
+  for (const [x, y] of B_PIGEONS) {
     for (let i = 0; i < 8; i++) BL.pigeons.push({ hx: x + (rnd() - 0.5) * 40, hy: y + (rnd() - 0.5) * 10, x: 0, y: 0, h: 0, state: 'peck', t: rnd() * 3, vx: 0, vy: 0 });
   }
   for (const p of BL.pigeons) { p.x = p.hx; p.y = p.hy; }
   BL.npcs = B_NPCS.map(n => ({ ...n, tx: n.x, ty: n.y, facing: 1, moving: false, wait: rnd() * 3, line: 0, bubble: null }));
   BL.fishes = [];
-  for (let tries = 0; BL.fishes.length < 180 && tries < 20000; tries++) {
+  const want = Math.round(BW * BH / 100000);
+  const grid = new Map();
+  for (let tries = 0; BL.fishes.length < want && tries < want * 120; tries++) {
     const x = 20 + rnd() * (BW - 40), y = 20 + rnd() * (BH - 40);
     const rd = bRoadAt(x, y);
     if (rd && !rd.dirt) continue;
     if (bSolid(x, y) || bSolid(x, y - 6) || (bMasked(x, y) && !rd)) continue;
-    if (BL.fishes.some(f => Math.abs(f.x - x) < 120 && Math.abs(f.y - y) < 120)) continue;
-    BL.fishes.push({ x, y, taken: false, seed: rnd() * 6 });
+    const gx = Math.floor(x / 120), gy = Math.floor(y / 120);
+    let close = false;
+    for (let i = -1; i <= 1 && !close; i++) for (let j = -1; j <= 1 && !close; j++) close = (grid.get(`${gx + i},${gy + j}`) || []).some(f => Math.abs(f.x - x) < 120 && Math.abs(f.y - y) < 120);
+    if (close) continue;
+    const f = { x, y, taken: false, seed: rnd() * 6 };
+    BL.fishes.push(f);
+    const key = `${gx},${gy}`;
+    if (!grid.has(key)) grid.set(key, []);
+    grid.get(key).push(f);
   }
+  BL.found = new Set(SAVE.city.found || []);
 }
 
 function vehPos(v) {
-  const L = v.lane, def = B_VEH[v.type];
-  let x = L.axis === 'h' ? v.p : L.at, y = L.axis === 'h' ? L.at + def.wid / 2 : v.p + def.len / 2;
+  const L = v.lane, def = B_VEH[v.type], g = L.seg;
+  const q = laneXY(L, v.p);
+  let x = q.x, y = L.axis === 'h' ? q.y + def.wid / 2 : q.y + def.len / 2;
   // Swing round roundabouts.
-  for (const c0 of B_CIRCLES) {
-    const along = L.axis === 'h' ? v.p - c0.x : v.p - c0.y, across = L.axis === 'h' ? L.at - c0.y : L.at - c0.x;
+  if (g.axis !== 'd') for (const c0 of B_CIRCLES) {
+    const along = (q.x - c0.x) * g.ux + (q.y - c0.y) * g.uy, across = (q.x - c0.x) * g.nx + (q.y - c0.y) * g.ny;
     if (Math.abs(along) < 54 && Math.abs(across) < 20) {
       const off = Math.sign(across || 1) * 24 * Math.cos(along / 54 * Math.PI / 2);
-      if (L.axis === 'h') y += off; else x += off;
+      x += g.nx * off; y += g.ny * off;
     }
   }
   return { x, y };
@@ -670,20 +865,22 @@ function updateVehicles(dt) {
       let gap = Infinity;
       for (const o of L.cars) {
         if (o === v) continue;
-        let d = (o.p - v.p) * L.dir;
+        let d = (o.p - v.p) * L.sd;
         if (d < 0) d += L.to - L.from;
         gap = Math.min(gap, d - (B_VEH[o.type].len + def.len) / 2);
       }
-      const along = L.axis === 'h' ? k.x : k.y, across = L.axis === 'h' ? k.y - def.wid / 2 : k.x;
-      if (!k.ride && Math.abs(across - L.at) < def.wid / 2 + 5) {
-        const d = (along - v.p) * L.dir - def.len / 2;
-        if (d > -def.len && d < 46) {
-          gap = Math.min(gap, Math.max(0, d - 4));
-          if (v.honkCd <= 0 && d < 40) {
-            v.honkCd = 2.5 + Math.random() * 2;
-            bHorn(v.type);
-            const p = vehPos(v);
-            bText(p.x, p.y - 18, pick(B_HONKS), '#ffe08a');
+      if (!k.ride && Math.abs(k.x - L.seg.x0) + Math.abs(k.y - L.seg.y0) < L.seg.len + 80) {
+        const f = laneFrame(L, k.x, k.y);
+        if (Math.abs(f.across) < def.wid / 2 + 5) {
+          const d = (f.along - v.p) * L.sd - def.len / 2;
+          if (d > -def.len && d < 46) {
+            gap = Math.min(gap, Math.max(0, d - 4));
+            if (v.honkCd <= 0 && d < 40) {
+              v.honkCd = 2.5 + Math.random() * 2;
+              bHorn(v.type);
+              const p = vehPos(v);
+              bText(p.x, p.y - 18, pick(B_HONKS), '#ffe08a');
+            }
           }
         }
       }
@@ -692,9 +889,9 @@ function updateVehicles(dt) {
       const vmax = inRect(pos.x, pos.y, B_JAM) ? 7 : v.vmax;
       const target = gap < 6 ? 0 : gap < 36 ? vmax * (gap - 6) / 30 : vmax;
       v.v = v.v < target ? Math.min(target, v.v + 40 * dt) : Math.max(target, v.v - 160 * dt);
-      v.p += v.v * L.dir * dt;
-      if (L.dir > 0 && v.p > L.to) v.p = L.from;
-      if (L.dir < 0 && v.p < L.from) v.p = L.to;
+      v.p += v.v * L.sd * dt;
+      if (L.sd > 0 && v.p > L.to) v.p = L.from;
+      if (L.sd < 0 && v.p < L.from) v.p = L.to;
     }
   }
 }
@@ -757,9 +954,9 @@ function updateLife(dt) {
     if (inEll(nx, ny, d.lake, d.lake.rx - 12, d.lake.ry - 10)) { d.x = nx; d.y = ny; } else { d.vx *= -1; d.vy *= -1; }
   }
   k.coracle.y += k.coracle.dir * 8 * dt;
-  if (k.coracle.y > 2800 || k.coracle.y < 1500) k.coracle.dir *= -1;
+  if (k.coracle.y > B_CORACLE.y1 || k.coracle.y < B_CORACLE.y0) k.coracle.dir *= -1;
   k.cart.x += k.cart.dir * 9 * dt;
-  if (k.cart.x > 700 || k.cart.x < 60) k.cart.dir *= -1;
+  if (k.cart.x > B_CART.x1 || k.cart.x < B_CART.x0) k.cart.dir *= -1;
   for (const dg of k.dogs) {
     if ((dg.t -= dt) <= 0) { dg.t = 3 + Math.random() * 4; dg.tx = dg.area.x + Math.random() * dg.area.w; dg.ty = dg.area.y + Math.random() * dg.area.h; }
     const dd = Math.hypot(dg.tx - dg.x, dg.ty - dg.y);
@@ -833,7 +1030,7 @@ function bToast(text, sub = '', t = 2.2) { BL.toast = { text, sub, t, max: t }; 
 // ---------------------------------------------------------------------------
 // Starting, moving, postcards and interactions.
 // ---------------------------------------------------------------------------
-const B_START = { x: 2640, y: 1381 };
+const B_START = (() => { const v = B_POSTCARDS.find(p => p.id === 'vidhana'); return { x: v.x, y: v.y }; })();
 
 function startCity() {
   unlockAudio();
@@ -846,10 +1043,12 @@ function startCity() {
   rng = Math.random;
   if (!SAVE.city) SAVE.city = { stamps: [] };
   SAVE.city.stamps = SAVE.city.stamps.filter(id => B_POSTCARDS.some(p => p.id === id));
+  SAVE.city.found = (SAVE.city.found || []).filter(n => B_HIDDEN.some(h => h.name === n));
   Object.assign(BL, {
     active: true, x: B_START.x, y: B_START.y, z: 0, vz: 0, view: 'street', mapOpen: false, mapSel: null, mapZoom: 1, ride: null, waypoint: null,
     clock: 8 * 60, t: 0, texts: [], fx: [], petals: [], card: null, near: null, boost: 0, dashT: 0, dashV: { x: 0, y: 0 },
     district: '', place: '', toast: null, cakeCd: 0, banner: { title: 'NAMMA BENGALURU', sub: 'Find a postcard at every landmark', t: 4.5 }, cam: null,
+    title: null, titled: null, titleAt: -99, mapFocus: null, mapFor: null,
   });
   Object.assign(bkit, { facing: 1, walkT: 0, atkT: 0, airborne: false, dashT: 0, sprint: false });
   resetCityLife();
@@ -878,6 +1077,7 @@ function cityTick(dt) {
   k.t += dt;
   k.clock = (k.clock + dt * 1.6) % 1440;
   if (k.banner && (k.banner.t -= dt) <= 0) k.banner = null;
+  if (k.title && (k.title.t -= dt) <= 0) k.title = null;
   if (k.toast && (k.toast.t -= dt) <= 0) k.toast = null;
   if (k.card && (k.card.t -= dt) <= 0) k.card = null;
   k.cakeCd -= dt;
@@ -924,12 +1124,11 @@ function cityTick(dt) {
   // Vehicles and the steam train shove the kitten aside.
   for (const v of k.vehicles) {
     const p = vehPos(v), def = B_VEH[v.type];
-    if (Math.abs(p.x - k.x) > 60 || Math.abs(p.y - k.y) > 60) continue;
-    const hw = v.lane.axis === 'h' ? def.len / 2 : def.wid / 2, hh = v.lane.axis === 'h' ? def.wid / 2 : def.len / 2;
-    const cy = v.lane.axis === 'h' ? p.y - def.wid / 2 : p.y - def.len / 2;
-    if (Math.abs(k.x - p.x) < hw + 3 && Math.abs(k.y - cy) < hh + 3 && k.z < 6) {
-      const push = v.lane.axis === 'h' ? { x: 0, y: Math.sign(k.y - cy) || 1 } : { x: Math.sign(k.x - p.x) || 1, y: 0 };
-      if (!bSolid(k.x + push.x * 3, k.y + push.y * 3)) { k.x += push.x * 3; k.y += push.y * 3; }
+    if (Math.abs(p.x - k.x) > 60 || Math.abs(p.y - k.y) > 60 || k.z >= 6) continue;
+    const L = v.lane, f = laneFrame(L, k.x, k.y);
+    if (Math.abs(f.along - v.p) < def.len / 2 + 3 && Math.abs(f.across) < def.wid / 2 + 3) {
+      const s = Math.sign(f.across) || 1, px = L.seg.nx * s * 3, py = L.seg.ny * s * 3;
+      if (!bSolid(k.x + px, k.y + py)) { k.x += px; k.y += py; }
     }
   }
   const st = k.steam;
@@ -938,9 +1137,15 @@ function cityTick(dt) {
     if (!st.tootCd || k.t > st.tootCd) { st.tootCd = k.t + 3; bWhistle(); bText(k.x, k.y - 34, 'Koooo!', '#ffffff'); }
   }
 
-  // Where are we?
+  // Where are we? Walking into a new neighbourhood shows its name.
   const rd = bRoadAt(k.x, k.y);
   const dist0 = bDistrictAt(k.x, k.y);
+  if (dist0.blurb && dist0.name !== k.titled && k.t - k.titleAt > 4 && !k.banner) {
+    k.title = { name: dist0.name, sub: dist0.blurb, t: 3.4, max: 3.4 };
+    k.titled = dist0.name;
+    k.titleAt = k.t;
+  }
+  if (!dist0.blurb && k.t - k.titleAt > 4) k.titled = null;
   k.district = dist0.name;
   k.place = inRect(k.x, k.y, B_RIVER) && !rd ? 'River Sarayu' : rd ? rd.name : dist0.name;
   setMusic(k.clock > 19 * 60 || k.clock < 5 * 60 ? 'night' : dist0.mus);
@@ -950,6 +1155,17 @@ function cityTick(dt) {
   }
   for (const pc of B_POSTCARDS) if (!pc.ride && Math.abs(pc.x - k.x) < pc.r && Math.hypot(pc.x - k.x, pc.y - k.y) < pc.r) bStamp(pc.id);
   if (k.waypoint && Math.hypot(k.waypoint.x - k.x, k.waypoint.y - k.y) < 34) { bToast('ARRIVED', k.waypoint.name); k.waypoint = null; sfx.chime(); }
+  // Hidden cats: walk right up to one to find it.
+  for (const h of B_HIDDEN) {
+    if (k.found.has(h.name) || Math.abs(h.x - k.x) > 20 || Math.hypot(h.x - k.x, h.y - k.y) > 20) continue;
+    k.found.add(h.name);
+    SAVE.city.found = [...k.found];
+    addFish(3);
+    sfx.pickup();
+    bText(h.x, h.y - 16, 'Mrrp!', '#ffd0e0', 1.4);
+    bToast(`YOU FOUND ${h.name.toUpperCase()}`, `Hidden cats: ${k.found.size} of ${B_HIDDEN.length}. +3 fish`, 2.8);
+    if (k.found.size === B_HIDDEN.length) setTimeout(() => { BL.banner = { title: 'EVERY CAT FOUND!', sub: 'Sharp eyes, little knight. +50 fish', t: 5 }; addFish(50); sfx.win(); }, 2500);
+  }
 
   k.near = findNear();
   if (input.pressed.jump) {
@@ -973,6 +1189,7 @@ function findNear() {
   B_STEAM_STOPS.forEach((s, i) => consider(Math.hypot(s.exit.x - k.x, s.exit.y - k.y) - 8, { kind: 'steam', from: i, label: `Board the Malgudi Express to ${B_STEAM_STOPS[1 - i].name}` }));
   for (const n of k.npcs) if (Math.abs(n.x - k.x) < 30) consider(Math.hypot(n.x - k.x, n.y - k.y), { kind: 'npc', n, label: n.shop === 'coffee' ? 'Filter kaapi' : n.shop === 'cake' ? 'Honey cake' : `Talk to ${n.name}` });
   for (const c of k.cows) consider(Math.hypot(c.x - k.x, c.y - k.y), { kind: 'cow', c, label: 'Pat the cow' });
+  for (const a of B_AUTO_STANDS) consider(Math.hypot(a.x - k.x, a.y - k.y) - 6, { kind: 'auto', a, label: k.waypoint ? `Take an auto to ${k.waypoint.name}` : 'Take an auto: pick a place on the map' });
   return best;
 }
 
@@ -981,6 +1198,11 @@ function interact(it) {
   if (it.kind === 'metro') { openRidePicker(it.s); return; }
   if (it.kind === 'steam') { startSteamRide(it.from); return; }
   if (it.kind === 'cow') { bMoo(); bText(it.c.x, it.c.y - 18, 'Mooo.', '#ffffff'); return; }
+  if (it.kind === 'auto') {
+    if (k.waypoint) startAutoRide(it.a);
+    else { openCityMap(); k.mapFor = it.a; }
+    return;
+  }
   const n = it.n;
   const line = n.lines[n.line % n.lines.length];
   n.line++;
@@ -1003,9 +1225,13 @@ function mapTargets() {
   return out;
 }
 
+const B_MAP_ZOOMS = [1, 2.2, 4.4];
+
 function openCityMap() {
   const k = BL;
   k.mapOpen = true;
+  k.mapFor = null;
+  k.mapFocus = null;
   const tg = mapTargets();
   const cur = k.waypoint ? tg.find(t => t.id === k.waypoint.id) : null;
   k.mapSel = cur || tg.filter(t => !t.done).sort((a, b) => Math.hypot(a.x - k.x, a.y - k.y) - Math.hypot(b.x - k.x, b.y - k.y))[0] || tg[0];
@@ -1015,8 +1241,8 @@ function openCityMap() {
 
 function mapTick() {
   const k = BL;
-  if (input.pressed.map || input.pressed.pause) { k.mapOpen = false; sfx.blip(); return; }
-  if (input.pressed.view || input.pressed.dash) { k.mapZoom = k.mapZoom === 1 ? 2.5 : 1; sfx.blip(); }
+  if (input.pressed.map || input.pressed.pause) { k.mapOpen = false; k.mapFor = null; sfx.blip(); return; }
+  if (input.pressed.view || input.pressed.dash) { k.mapZoom = B_MAP_ZOOMS[(B_MAP_ZOOMS.indexOf(k.mapZoom) + 1) % B_MAP_ZOOMS.length] || 1; k.mapFocus = null; sfx.blip(); }
   const nx = Math.abs(input.mx) > 0.5 ? Math.sign(input.mx) : 0, ny = Math.abs(input.my) > 0.5 ? Math.sign(input.my) : 0;
   if ((nx || ny) && (nx !== k.mapNav.x || ny !== k.mapNav.y)) {
     const cur = k.mapSel;
@@ -1029,7 +1255,7 @@ function mapTick() {
       const score = along + Math.abs(vx * ny - vy * nx) * 2;
       if (score < bs) { bs = score; best = t; }
     }
-    if (best) { k.mapSel = best; sfx.blip(); }
+    if (best) { k.mapSel = best; k.mapFocus = null; sfx.blip(); }
   }
   k.mapNav = { x: nx, y: ny };
   if (input.pressed.jump || input.pressed.attack) setWaypoint(k.mapSel);
@@ -1038,20 +1264,39 @@ function mapTick() {
 function setWaypoint(t) {
   BL.waypoint = { id: t.id, name: t.name, x: t.x, y: t.y };
   BL.mapOpen = false;
-  bToast('DESTINATION SET', t.name);
   sfx.pickup();
+  if (BL.mapFor) { const a = BL.mapFor; BL.mapFor = null; startAutoRide(a); return; }
+  bToast('DESTINATION SET', t.name);
 }
 
-// Where the map sits on screen; zoomed in, it follows the selection.
+// The station nearest a point, and a metro route between two points when it saves a walk.
+function nearestStation(x, y) {
+  let best = null, bd = Infinity;
+  for (const s of Object.values(B_STATIONS)) { const d = Math.hypot(s.x - x, s.y - y); if (d < bd) { bd = d; best = s; } }
+  return best;
+}
+function metroTip(from, to) {
+  const a = nearestStation(from.x, from.y), b = nearestStation(to.x, to.y);
+  if (a === b || Math.hypot(to.x - from.x, to.y - from.y) < 1400) return null;
+  if (Math.hypot(a.x - from.x, a.y - from.y) + Math.hypot(b.x - to.x, b.y - to.y) > Math.hypot(to.x - from.x, to.y - from.y) * 0.7) return null;
+  const legs = routeLegs(a.id, b.id);
+  return `Metro: ${a.name} to ${b.name}${legs.length > 1 ? `, change at ${B_STATIONS[legs[0].b].name}` : ''}`;
+}
+const fmtDist = m => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m / 10) * 10} m`);
+
+// Where the map sits on screen. Zoomed in, it follows the selection (or the
+// spot last tapped). When the screen is wider than the map, the spare room
+// either side holds a legend and the details of the selected place.
 function mapLayout() {
   const top = 15, bottom = 13;
   const fit = Math.min((W - 12) / BW, (H - top - bottom) / BH);
   const s = fit * BL.mapZoom;
-  const vw = Math.min(W - 12, BW * s), vh = Math.min(H - top - bottom, BH * s);
+  const side = (W - BW * fit) / 2 >= 64 ? Math.min(78, (W - BW * fit) / 2 - 4) : 0;
+  const vw = Math.min(W - 12 - side * 2, BW * s), vh = Math.min(H - top - bottom, BH * s);
   const vx = (W - vw) / 2, vy = top + (H - top - bottom - vh) / 2;
-  const focus = BL.mapSel || BL;
+  const focus = BL.mapFocus || BL.mapSel || BL;
   const ox = clamp(focus.x * s - vw / 2, 0, BW * s - vw), oy = clamp(focus.y * s - vh / 2, 0, BH * s - vh);
-  return { s, vx, vy, vw, vh, X: wx => vx + wx * s - ox, Y: wy => vy + wy * s - oy };
+  return { s, vx, vy, vw, vh, side, X: wx => vx + wx * s - ox, Y: wy => vy + wy * s - oy, wx: gx => (gx - vx + ox) / s, wy: gy => (gy - vy + oy) / s };
 }
 
 // Taps pick a map destination or a metro station; a tap on the minimap opens the map.
@@ -1066,12 +1311,21 @@ window.addEventListener('pointerdown', e => {
   }
   if (BL.mapOpen) {
     const L = mapLayout();
-    let best = null, bd = 9;
+    if (gx < L.vx || gx > L.vx + L.vw || gy < L.vy || gy > L.vy + L.vh) return;
+    let best = null, bd = BL.mapZoom > 1 ? 9 : 5;
     for (const t of mapTargets()) {
       const d = Math.hypot(L.X(t.x) - gx, L.Y(t.y) - gy);
       if (d < bd) { bd = d; best = t; }
     }
-    if (best) setWaypoint(best);
+    // A tap on a place picks it (a second tap goes there); a tap anywhere else zooms in on that spot.
+    if (best && BL.mapSel && best.id === BL.mapSel.id) setWaypoint(best);
+    else if (best && BL.mapZoom > 1) { BL.mapSel = best; BL.mapFocus = null; sfx.blip(); }
+    else {
+      BL.mapFocus = { x: L.wx(gx), y: L.wy(gy) };
+      BL.mapZoom = B_MAP_ZOOMS[Math.min(B_MAP_ZOOMS.length - 1, B_MAP_ZOOMS.indexOf(BL.mapZoom) + 1)];
+      if (best) BL.mapSel = best;
+      sfx.blip();
+    }
     return;
   }
   const mm = miniRect();
@@ -1102,7 +1356,7 @@ function routeLegs(fromId, toId) {
       }
       return lines.map((ln, i) => ({ line: ln, a: i ? vias[i - 1] : fromId, b: i < lines.length - 1 ? vias[i] : toId }));
     }
-    for (const ic of Object.keys(B_INTERCHANGES)) {
+    for (const ic of B_CHANGES) {
       if (!B_STATIONS[ic].lines.includes(l)) continue;
       for (const l2 of B_STATIONS[ic].lines) if (!prev.has(l2)) { prev.set(l2, { l, via: ic }); queue.push(l2); }
     }
@@ -1127,7 +1381,7 @@ function confirmRide() {
   const sOf = (lid, id) => B_LINES[lid].stations.find(s => s.id === id).s;
   const segs = routeLegs(R.from, to.id).map(leg => ({
     line: leg.line, a: sOf(leg.line, leg.a), b: sOf(leg.line, leg.b), toName: B_STATIONS[leg.b].name, at: leg.b,
-    dur: 3 + Math.abs(sOf(leg.line, leg.b) - sOf(leg.line, leg.a)) / 300,
+    dur: 2.5 + Math.min(11, Math.abs(sOf(leg.line, leg.b) - sOf(leg.line, leg.a)) / 520),
   }));
   Object.assign(R, { phase: 'ride', view: BL.rideView || 'window', to: to.id, segs, seg: 0, t: 0, s: segs[0].a, speed: 0, said1: false, said2: false, caption: null });
   setMusic('metro');
@@ -1139,6 +1393,41 @@ function startSteamRide(fromIdx) {
   BL.ride = { kind: 'steam', phase: 'ride', view: BL.rideView || 'window', to: b.id, segs: [{ line: 'steam', a: a.x, b: b.x, toName: b.name, dur: 7 }], seg: 0, t: 0, s: a.x, speed: 0, said1: false, said2: false, caption: null };
   setMusic('malgudi');
   bWhistle();
+}
+
+// Auto-rickshaws: from a stand straight to wherever the destination is. The
+// meter is sleeping, of course; the fare is three fish if you have them.
+const B_AUTO_TALK = [
+  ['Meter? Meter is sleeping, saar.', 'Short cut! Trust me.'],
+  ['One-way? No problem, I know a way.', 'Hold tight, little knight!'],
+  ['Silk Board? Ayyo. Okay, okay.', 'Ten minutes. Bengaluru minutes.'],
+  ['Return is empty, but for you, coming.', 'Here only. Stop, stop!'],
+];
+// The walkable spot nearest (x, y), searching outwards.
+function bDropPoint(x, y) {
+  const free = (px, py) => !bSolid(px - 3, py) && !bSolid(px + 3, py) && !bSolid(px, py - 2) && !bInRiver(px, py);
+  for (let r = 0; r <= 120; r += 4) for (let a = 0; a < 24; a++) {
+    const px = x + Math.cos(a / 24 * Math.PI * 2) * r, py = y + Math.sin(a / 24 * Math.PI * 2) * r;
+    if (free(px, py)) return { x: Math.round(px), y: Math.round(py) };
+  }
+  return { x, y };
+}
+function startAutoRide(stand) {
+  const w = BL.waypoint;
+  if (!w) return;
+  const drop = bDropPoint(w.x, w.y + 18);
+  const dist = Math.hypot(drop.x - stand.x, drop.y - stand.y);
+  if (dist < 160) { bToast('THAT IS JUST THERE', 'Walk it, saar. Good for health.'); return; }
+  const fare = SAVE.fish >= 3 ? 3 : 0;
+  if (fare) addFish(-fare);
+  const track = { segs: [{ x0: stand.x, y0: stand.y, x1: drop.x, y1: drop.y, s0: 0, len: dist, axis: 'd' }], len: dist };
+  BL.ride = {
+    kind: 'auto', phase: 'ride', view: 'outside', to: w.id, drop, fare, talk: pick(B_AUTO_TALK), metres: bMetres(stand, drop),
+    segs: [{ line: 'auto', key: `auto-${Math.round(stand.x)},${Math.round(stand.y)}-${drop.x},${drop.y}`, track, a: 0, b: dist, toName: w.name, dur: 3 + Math.min(7, dist / 900) }],
+    seg: 0, t: 0, s: 0, speed: 0, said1: false, said2: false, caption: null,
+  };
+  setMusic('metro');
+  bHorn('auto');
 }
 
 function rideTick(dt) {
@@ -1155,7 +1444,7 @@ function rideTick(dt) {
     if (input.pressed.jump || input.pressed.attack) confirmRide();
     return;
   }
-  if (input.pressed.view) { R.view = BL.rideView = R.view === 'window' ? 'outside' : 'window'; sfx.blip(); }
+  if (input.pressed.view && R.kind !== 'auto') { R.view = BL.rideView = R.view === 'window' ? 'outside' : 'window'; sfx.blip(); }
   R.t += dt;
   const seg = R.segs[R.seg];
   const k = clamp(R.t / seg.dur, 0, 1);
@@ -1165,12 +1454,16 @@ function rideTick(dt) {
   R.speed = Math.abs(seg.b - seg.a) / seg.dur * (4 / 3) * (k < 0.25 ? k * 4 : k > 0.75 ? (1 - k) * 4 : 1);
   if (!R.said1 && R.t > 0.6) {
     R.said1 = true;
-    R.caption = R.kind === 'steam' ? { kn: `Malgudi Express to ${seg.toName}`, en: 'Tickets, please! Mind the smoke.', t: 3 } : { kn: `Mundina nildana: ${seg.toName}`, en: `Next station: ${seg.toName}`, t: 3 };
-    bChime(0.8);
+    R.caption = R.kind === 'steam' ? { kn: `Malgudi Express to ${seg.toName}`, en: 'Tickets, please! Mind the smoke.', t: 3 }
+      : R.kind === 'auto' ? { kn: R.talk[0], en: `Auto to ${seg.toName}, ${fmtDist(R.metres)}. ${R.fare ? `Fare: ${R.fare} fish.` : 'Free ride!'}`, t: 3.2 }
+      : { kn: `Mundina nildana: ${seg.toName}`, en: `Next station: ${seg.toName}`, t: 3 };
+    if (R.kind === 'auto') bHorn('auto'); else bChime(0.8);
   }
   if (!R.said2 && k > 0.72) {
     R.said2 = true;
-    R.caption = R.kind === 'steam' ? { kn: `Arriving at ${seg.toName}`, en: 'Platform one', t: 2.6 } : { kn: 'Baagilugalu edagade tereyuttave', en: 'Doors will open on the left', t: 2.6 };
+    R.caption = R.kind === 'steam' ? { kn: `Arriving at ${seg.toName}`, en: 'Platform one', t: 2.6 }
+      : R.kind === 'auto' ? { kn: R.talk[1], en: seg.toName, t: 2.6 }
+      : { kn: 'Baagilugalu edagade tereyuttave', en: 'Doors will open on the left', t: 2.6 };
   }
   if (R.caption && (R.caption.t -= dt) <= 0) R.caption = null;
   if (k < 1) return;
@@ -1178,6 +1471,15 @@ function rideTick(dt) {
     R.seg++; R.t = 0; R.said1 = false; R.said2 = false;
     R.caption = { kn: `Ee nildana: ${R.segs[R.seg - 1].toName}`, en: `Change here for the ${B_LINES[R.segs[R.seg].line].name}`, t: 2.4 };
     bChime();
+    return;
+  }
+  if (R.kind === 'auto') {
+    BL.x = R.drop.x; BL.y = R.drop.y;
+    BL.ride = null;
+    bToast('ARRIVED', BL.waypoint ? BL.waypoint.name : seg.toName);
+    BL.waypoint = null;
+    bHorn('auto');
+    if (!SAVE.city.stamps.includes('auto')) bStamp('auto');
     return;
   }
   const stop = R.kind === 'steam' ? B_STEAM_STOPS.find(s => s.id === R.to) : null;
@@ -1258,8 +1560,9 @@ function cityDraw() {
   if (bOnScreen(k.steam.x, RAIL_Y, 160)) list.push({ y: RAIL_Y + 8, steam: true });
   if (bOnScreen(k.cart.x, k.cart.y, 40)) list.push({ y: k.cart.y, cart: true });
   for (const f of k.fishes) if (!f.taken && bOnScreen(f.x, f.y, 10)) list.push({ y: f.y, fish: f });
+  for (const h of B_HIDDEN) if (bOnScreen(h.x, h.y, 10)) list.push({ y: h.y, cat: h });
   for (const L of Object.values(B_LINES)) for (const g of L.segs) {
-    if (g.axis !== 'h' || !bOnScreen((g.x0 + g.x1) / 2, g.y0, Math.abs(g.x1 - g.x0) / 2 + 10)) continue;
+    if (g.under || g.axis !== 'h' || !bOnScreen((g.x0 + g.x1) / 2, g.y0, Math.abs(g.x1 - g.x0) / 2 + 10)) continue;
     for (let x = Math.min(g.x0, g.x1) + 30; x < Math.max(g.x0, g.x1); x += 60) if (bOnScreen(x, g.y0, 10)) list.push({ y: g.y0 + 1, pillar: x, py: g.y0 });
   }
   list.push({ y: k.y, kitten: true });
@@ -1279,6 +1582,7 @@ function cityDraw() {
     else if (it.dog) drawDog(it.dog);
     else if (it.steam) drawSteam();
     else if (it.cart) drawCart();
+    else if (it.cat) drawHiddenCat(it.cat);
     else if (it.fish) { const bob = Math.round(Math.sin(k.t * 4 + it.fish.seed) * 1.5); drawShadow(it.fish.x, it.fish.y, 6, 0.2); ctx.drawImage(SPR.fish.img[0], Math.round(it.fish.x - 4), Math.round(it.fish.y - 9 + bob)); }
     else if (it.pillar) { ctx.fillStyle = '#6e6a62'; ctx.fillRect(it.pillar - 3, it.py - 16, 6, 17); ctx.fillStyle = '#a8a294'; ctx.fillRect(it.pillar - 3, it.py - 16, 2, 17); }
     else if (it.kitten) { drawCityKitten(); kitDone = true; }
@@ -1294,6 +1598,7 @@ function cityDraw() {
 
 function bUnderDeck(x, y) {
   for (const L of Object.values(B_LINES)) for (const g of L.segs) {
+    if (g.under) continue;
     if (g.axis === 'h' && y > g.y0 - 34 && y < g.y0 + 20 && x > Math.min(g.x0, g.x1) && x < Math.max(g.x0, g.x1)) return true;
     if (g.axis === 'v' && Math.abs(x - g.x0) < 18 && y > Math.min(g.y0, g.y1) - 10 && y < Math.max(g.y0, g.y1) + 10) return true;
   }
@@ -1345,8 +1650,8 @@ function drawGroundLife() {
     drawPerson(x - 3, y - 2, { skin: '#c48a5c', hair: '#2b2220', top: '#5b8ee0', bottom: '#2b2a33', facing: 1 }, true);
     ctx.fillStyle = '#8cc4e0'; ctx.fillRect(x - 9, y + 2, 18, 1);
   }
-  if (bOnScreen(800, k.coracle.y, 30)) {
-    const x = 800 + Math.round(Math.sin(k.t * 0.8) * 8), y = Math.round(k.coracle.y);
+  if (bOnScreen(B_CORACLE.x, k.coracle.y, 30)) {
+    const x = B_CORACLE.x + Math.round(Math.sin(k.t * 0.8) * 8), y = Math.round(k.coracle.y);
     ctx.fillStyle = '#3a2618'; ctx.fillRect(x - 8, y - 3, 17, 7);
     ctx.fillStyle = '#8a6a4a'; ctx.fillRect(x - 7, y - 2, 15, 5);
     ctx.fillStyle = '#a8845a'; for (let i = -6; i < 8; i += 2) ctx.fillRect(x + i, y - 2, 1, 5);
@@ -1393,6 +1698,24 @@ function drawPerson(x, y, p, sitting = false) {
   ctx.fillRect(f > 0 ? X + 2 : X - 1, top + 1, 1, 1);
   ctx.fillStyle = p.skin;
   ctx.fillRect(f > 0 ? X + 3 : X - 3, top + 5 + step, 1, 3);
+}
+
+// A hidden cat: curled up asleep until found, then sitting up and purring.
+function drawHiddenCat(h) {
+  const x = Math.round(h.x), y = Math.round(h.y);
+  const i = B_HIDDEN.indexOf(h), fur = ['#e8a35a', '#3a3530', '#f4f1ea', '#9a8f84', '#c98a4a'][i % 5], dark = shade(fur, -0.35);
+  drawShadow(x, y, 8, 0.18);
+  ctx.fillStyle = '#1d1816';
+  if (!BL.found.has(h.name)) {
+    ctx.fillRect(x - 5, y - 4, 10, 4); ctx.fillStyle = fur; ctx.fillRect(x - 4, y - 3, 8, 2);
+    ctx.fillStyle = dark; ctx.fillRect(x - 4, y - 1, 8, 1); ctx.fillRect(x + 2, y - 5, 1, 1); ctx.fillRect(x + 4, y - 5, 1, 1);
+    if (Math.floor(BL.t * 0.7 + i) % 5 === 0) { ctx.fillStyle = fur; ctx.fillRect(x - 6, y - 2, 1, 2); }
+    return;
+  }
+  ctx.fillRect(x - 3, y - 9, 7, 9); ctx.fillStyle = fur; ctx.fillRect(x - 2, y - 8, 5, 8);
+  ctx.fillStyle = '#1d1816'; ctx.fillRect(x - 3, y - 11, 2, 2); ctx.fillRect(x + 2, y - 11, 2, 2);
+  ctx.fillRect(x - 1, y - 6, 1, 1); ctx.fillRect(x + 1, y - 6, 1, 1);
+  ctx.fillStyle = dark; ctx.fillRect(x + 3, y - 3 - (Math.floor(BL.t * 3 + i) % 2), 3, 1);
 }
 
 function drawCow(c) {
@@ -1536,6 +1859,7 @@ function drawMetroOverlay() {
   const k = BL, c = k.cam;
   for (const L of Object.values(B_LINES)) {
     for (const g of L.segs) {
+      if (g.under) continue;
       if (g.axis === 'h') {
         const yd = g.y0 - DECK;
         if (c.y > g.y0 + 20 || c.y + c.h < yd - 40) continue;
@@ -1561,7 +1885,8 @@ function drawMetroOverlay() {
   const stations = [];
   for (const L of Object.values(B_LINES)) for (const st of L.stations) {
     if (!bOnScreen(st.x, st.y, 70)) continue;
-    stations.push({ st, L, axis: linePoint(L, st.s).axis });
+    const p = linePoint(L, st.s);
+    if (!p.under) stations.push({ st, L, axis: p.axis });
   }
   for (const s of stations) (s.axis === 'h' ? drawStationH : drawStationV)(s.st, s.L, false);
   for (const tr of k.trains) drawMetroTrain(tr);
@@ -1609,6 +1934,7 @@ function drawMetroTrain(tr) {
   if (!bOnScreen(mid.x, mid.y, 120)) return;
   for (let i = -1; i <= 1; i++) {
     const p = linePoint(L, tr.s + i * 38);
+    if (p.under) continue;
     if (p.axis === 'h') {
       const yb = Math.round(p.y - DECK + (tr.dir > 0 ? -1 : 4)), x0 = Math.round(p.x - 18);
       ctx.fillStyle = '#2b2220'; ctx.fillRect(x0, yb - 11, 37, 11);
@@ -1713,13 +2039,14 @@ function sketchFilter(vw, vh, ox, oy) {
 // Either way the real buildings and trees along the route pass by, nearer
 // ones faster, and stations appear with their platforms and name boards.
 // ---------------------------------------------------------------------------
-function rideTrack(seg) { return seg.line === 'steam' ? null : B_LINES[seg.line]; }
+function rideTrack(seg) { return seg.track || (seg.line === 'steam' ? null : B_LINES[seg.line]); }
 
 // Buildings and trees near the line, with how far along it they are and how far from it.
 function rideItems(seg) {
-  const key = seg.line;
+  const key = seg.key || seg.line;
   BL.rideCache = BL.rideCache || {};
   if (BL.rideCache[key]) return BL.rideCache[key];
+  if (seg.key) for (const k of Object.keys(BL.rideCache)) if (k.startsWith('auto')) delete BL.rideCache[k];
   const L = rideTrack(seg), out = [];
   for (const st of BL.statics) {
     if (st.lamp || (st.kind === 'bld' && ['board', 'mempi', 'statue', 'flood', 'ksrcanopy', 'flyover'].includes(st.b.spr))) continue;
@@ -1736,7 +2063,9 @@ function rideItems(seg) {
 // Stations along a line as positions along it.
 function rideStops(seg) {
   if (seg.line === 'steam') return B_STEAM_STOPS.map(s => ({ along: s.x, name: s.name }));
-  return B_LINES[seg.line].stations.map(st => ({ along: st.s, name: st.name }));
+  if (seg.line === 'auto') return [];
+  const L = B_LINES[seg.line];
+  return L.stations.map(st => ({ along: st.s, name: st.name, under: linePoint(L, st.s).under }));
 }
 
 // Sky, hills or skyline, real buildings and trees, then the track or platform.
@@ -1753,7 +2082,7 @@ function drawRideScene(vw, vh, horizon, nearY, s, dir, seg, steam) {
   }
   ctx.fillStyle = 'rgba(255,255,255,0.85)';
   for (let i = 0; i < 8; i++) pixEllipse(ctx, wrap(i * 97 - s * 0.04 * dir, vw + 80) - 40, Math.round(horizon * (0.15 + (i * 13 % 40) / 100)), 14, 4);
-  const inTown = !steam || s > 840;
+  const inTown = !steam || s > B_RIVER.x + B_RIVER.w;
   // Far: Mempi hills for the steam train, a hazy skyline of apartment blocks in town.
   if (!inTown || steam) {
     ctx.fillStyle = day.dark > 0.3 ? '#2f3a3a' : '#87a084';
@@ -1787,7 +2116,7 @@ function drawRideScene(vw, vh, horizon, nearY, s, dir, seg, steam) {
   const boards = [];
   for (const st of rideStops(seg)) {
     const x = vw / 2 + (st.along - s) * dir * 1.3;
-    if (x < -260 || x > vw + 260) continue;
+    if (x < -260 || x > vw + 260 || st.under) continue;
     const pw = 240;
     if (steam) {
       ctx.fillStyle = '#bdb5a5'; ctx.fillRect(Math.round(x - pw / 2), nearY - 8, pw, 8);
@@ -1810,60 +2139,153 @@ function drawRideScene(vw, vh, horizon, nearY, s, dir, seg, steam) {
   return boards;
 }
 
+// Three metro coaches side-on, with Ser Biscuit at a window.
+function drawMetroSide(L, cx, ty, rock) {
+  const tw = 56, tx0 = Math.round(cx - tw * 1.5);
+  for (let i = 0; i < 3; i++) {
+    const x = tx0 + i * tw;
+    ctx.fillStyle = '#2b2220'; ctx.fillRect(x, ty - rock, tw - 1, 21);
+    ctx.fillStyle = '#eceaf0'; ctx.fillRect(x + 1, ty + 1 - rock, tw - 3, 19);
+    ctx.fillStyle = L.col; ctx.fillRect(x + 1, ty + 13 - rock, tw - 3, 5); ctx.fillRect(x + 1, ty + 1 - rock, tw - 3, 2);
+    for (let wx = 4; wx < tw - 8; wx += 9) { ctx.fillStyle = '#3a4a58'; ctx.fillRect(x + wx, ty + 5 - rock, 7, 6); }
+    ctx.fillStyle = '#9a9aa6'; ctx.fillRect(x + tw / 2 - 3, ty + 4 - rock, 6, 13);
+  }
+  ctx.drawImage(SPR.kitten.idle.img[0], 0, 0, 24, 14, tx0 + tw + 12, ty + 3 - rock, 12, 7);
+}
+
+// An auto-rickshaw side-on, about twice street size, with Ser Biscuit in the back.
+function drawAutoSide(cx, y, rock, spin) {
+  const R = (x, yy, w, h, col) => { ctx.fillStyle = col; ctx.fillRect(Math.round(cx + x), Math.round(y + yy - rock), w, h); };
+  R(-24, -38, 40, 7, '#1d1816'); R(-23, -37, 38, 4, '#2b2220');
+  R(-24, -31, 2, 14, '#1d1816'); R(12, -31, 2, 12, '#1d1816');
+  R(-26, -18, 48, 14, '#1d1816'); R(-25, -17, 46, 6, '#f0c419'); R(-25, -17, 46, 1, '#ffe27a'); R(-25, -11, 46, 6, '#2e7d32');
+  R(20, -16, 8, 11, '#1d1816'); R(21, -15, 6, 9, '#2e7d32'); R(25, -12, 2, 2, '#fff3c8');
+  R(13, -31, 7, 14, '#1d1816'); R(14, -30, 5, 12, '#9cc4dc'); R(14, -30, 1, 12, '#d8eef6');
+  R(4, -29, 5, 5, '#7a5236'); R(4, -30, 5, 2, '#1d1816'); R(3, -24, 7, 7, '#d9c7a2');
+  ctx.drawImage(SPR.kitten.idle.img[0], 0, 0, 24, 14, Math.round(cx - 20), Math.round(y - 30 - rock), 16, 10);
+  for (const wx of [-15, 18]) {
+    R(wx - 5, -6, 11, 11, '#1d1816'); R(wx - 3, -4, 7, 7, '#5d6369');
+    const a = spin * 0.3;
+    R(wx + Math.round(Math.cos(a) * 2), -1 + Math.round(Math.sin(a) * 2), 1, 1, '#c9ced2');
+  }
+  R(-30, -6, 5, 2, '#5d6369');
+}
+
+// Underground: a dark tunnel streaking past the windows, and at each
+// underground station a bright tiled platform with its name board.
+function drawTunnelScene(vw, vh, horizon, nearY, s, dir, seg) {
+  const L = B_LINES[seg.line];
+  const wrap = (v, m) => ((v % m) + m) % m;
+  // Rings of the tunnel lining, cable trays and lamps, all rushing past at track speed.
+  const top = Math.round(nearY * 0.38), mid = Math.round(nearY * 0.62);
+  ctx.fillStyle = '#121418'; ctx.fillRect(0, 0, vw, nearY);
+  ctx.fillStyle = '#1f2228'; ctx.fillRect(0, top, vw, nearY - top);
+  for (let x = -wrap(s * 1.3 * dir, 34); x < vw; x += 34) { ctx.fillStyle = '#2a2e35'; ctx.fillRect(Math.round(x), top, 3, nearY - top); }
+  ctx.fillStyle = '#3a3f47'; ctx.fillRect(0, mid, vw, 3); ctx.fillRect(0, mid + 8, vw, 2); ctx.fillStyle = '#4a4f58'; ctx.fillRect(0, mid, vw, 1);
+  for (let x = -wrap(s * 1.3 * dir, 120); x < vw; x += 120) {
+    ctx.fillStyle = 'rgba(255,233,168,0.22)'; ctx.fillRect(Math.round(x) - 8, top + 4, 30, 8);
+    ctx.fillStyle = '#ffe9a8'; ctx.fillRect(Math.round(x), top + 7, 14, 2);
+  }
+  for (let x = -wrap(s * 1.3 * dir + 57, 360); x < vw; x += 360) { ctx.fillStyle = '#2f8a3a'; ctx.fillRect(Math.round(x), mid + 16, 18, 7); ctx.fillStyle = '#ffffff'; ctx.fillRect(Math.round(x) + 3, mid + 18, 12, 1); ctx.fillRect(Math.round(x) + 3, mid + 20, 8, 1); }
+  const boards = [];
+  for (const st of rideStops(seg)) {
+    const x = vw / 2 + (st.along - s) * dir * 1.3;
+    if (x < -280 || x > vw + 280 || !st.under) continue;
+    const pw = 260, x0 = Math.round(x - pw / 2);
+    ctx.fillStyle = '#e9e4dc'; ctx.fillRect(x0, 0, pw, nearY);
+    for (let tx = x0; tx < x0 + pw; tx += 8) { ctx.fillStyle = '#d3cdc2'; ctx.fillRect(tx, 0, 1, nearY); }
+    for (let ty = 4; ty < nearY; ty += 8) { ctx.fillStyle = '#d3cdc2'; ctx.fillRect(x0, ty, pw, 1); }
+    ctx.fillStyle = L.col; ctx.fillRect(x0, top + 6, pw, 5);
+    ctx.fillStyle = '#ffffff'; for (let lx = x0 + 10; lx < x0 + pw - 10; lx += 40) ctx.fillRect(lx, 3, 24, 3);
+    for (let px = x0 + 20; px < x0 + pw; px += 60) { ctx.fillStyle = '#b9b2a6'; ctx.fillRect(px, 0, 8, nearY); ctx.fillStyle = '#d9d2c4'; ctx.fillRect(px, 0, 2, nearY); }
+    for (let i = 0; i < 6; i++) drawPerson(x0 + 40 + i * 37 + (i % 2) * 8, nearY - 2, { skin: ['#c48a5c', '#9a6a45', '#7a5236'][i % 3], hair: '#1d1816', top: ['#5b8ee0', '#d8433b', '#f2c94c', '#2f8a3a', '#f4f1ea', '#c3a0ec'][i], bottom: '#2b2a33', facing: i % 2 ? 1 : -1 }, false);
+    const by = top + 16;
+    ctx.fillStyle = '#1d1816'; ctx.fillRect(Math.round(x - 52), by, 104, 14); ctx.fillStyle = L.col; ctx.fillRect(Math.round(x - 51), by + 1, 102, 12);
+    boards.push({ x, y: by + 7, text: st.name, color: '#ffffff', bg: null });
+  }
+  return boards;
+}
+
 function drawRide(vw, vh) {
   const R = BL.ride, seg = R.segs[R.seg], steam = R.kind === 'steam';
   const dir = Math.sign(seg.b - seg.a) || 1;
   const rock = R.speed > 20 ? (Math.floor(BL.t * 12) % 2) : 0;
+  const L = R.kind === 'metro' ? B_LINES[seg.line] : null;
+  const under = L && linePoint(L, R.s).under;
+  const wrap = (v, m) => ((v % m) + m) % m;
   R.layout = null;
   ctx.fillStyle = '#5d8a3e';
   ctx.fillRect(0, 0, vw, vh);
-  if (R.view === 'outside') {
+  if (R.kind === 'auto') {
+    // The road, the city going by, and the auto bouncing along.
+    const horizon = Math.round(vh * 0.58), roadY = horizon + 40;
+    R.boards = drawRideScene(vw, vh, horizon, roadY - 14, R.s, dir, seg, false);
+    ctx.fillStyle = '#b9ae99'; ctx.fillRect(0, roadY - 14, vw, 8);
+    ctx.fillStyle = '#d8d2c4'; ctx.fillRect(0, roadY - 7, vw, 1);
+    ctx.fillStyle = '#56595f'; ctx.fillRect(0, roadY - 6, vw, vh - roadY + 6);
+    for (let x = -wrap(R.s * 1.6, 44); x < vw; x += 44) { ctx.fillStyle = '#ece6d4'; ctx.fillRect(Math.round(x), roadY + 22, 22, 2); }
+    const bump = R.speed > 20 ? (Math.floor(BL.t * 9) % 3 === 0 ? 1 : 0) : 0;
+    drawAutoSide(Math.round(vw / 2), roadY + 14, bump, BL.t * 20 * (R.speed > 1 ? 1 : 0));
+  } else if (R.view === 'outside' && under) {
+    // A cut-away: the street above, earth, and the train in its tunnel.
+    const horizon = Math.round(vh * 0.24), surface = Math.round(vh * 0.36);
+    R.boards = drawRideScene(vw, vh, horizon, surface, R.s, dir, seg, false);
+    ctx.fillStyle = '#56595f'; ctx.fillRect(0, surface - 4, vw, 4);
+    ctx.fillStyle = '#8a6a4a'; ctx.fillRect(0, surface, vw, vh - surface);
+    for (const [k, col] of [[0.1, '#7a5a3a'], [0.3, '#9a7a52'], [0.85, '#6b4a32']]) { ctx.fillStyle = col; ctx.fillRect(0, Math.round(surface + (vh - surface) * k), vw, 3); }
+    for (let i = 0; i < 40; i++) { const x = wrap(i * 97 - R.s * 0.9 * dir, vw + 20) - 10, y = surface + 6 + (i * 37) % (vh - surface - 12); ctx.fillStyle = i % 3 ? '#6b4a32' : '#a39b8a'; ctx.fillRect(Math.round(x), Math.round(y), 3 + i % 4, 2); }
+    const ty = Math.round(vh * 0.66);
+    ctx.fillStyle = '#2b2620'; ctx.fillRect(0, ty - 30, vw, 40); ctx.fillStyle = '#3a3f47'; ctx.fillRect(0, ty - 28, vw, 36);
+    for (let x = -wrap(R.s * 1.3 * dir, 30); x < vw; x += 30) { ctx.fillStyle = '#4a4f58'; ctx.fillRect(Math.round(x), ty - 28, 2, 36); }
+    for (let x = -wrap(R.s * 1.3 * dir, 120); x < vw; x += 120) { ctx.fillStyle = '#ffe9a8'; ctx.fillRect(Math.round(x), ty - 26, 10, 1); }
+    for (const st of rideStops(seg)) {
+      const x = vw / 2 + (st.along - R.s) * dir * 1.3;
+      if (!st.under || x < -150 || x > vw + 150) continue;
+      ctx.fillStyle = '#e9e4dc'; ctx.fillRect(Math.round(x - 130), ty - 40, 260, 50); ctx.fillStyle = L.col; ctx.fillRect(Math.round(x - 130), ty - 40, 260, 3);
+      ctx.fillStyle = '#1d1816'; ctx.fillRect(Math.round(x - 48), ty - 56, 96, 13); ctx.fillStyle = L.col; ctx.fillRect(Math.round(x - 47), ty - 55, 94, 11);
+      R.boards.push({ x, y: ty - 49.5, text: st.name, color: '#ffffff', bg: null });
+      for (const sx of [-120, 120]) { ctx.fillStyle = '#5d6369'; ctx.fillRect(Math.round(x + sx), surface - 18, 8, 18); ctx.fillStyle = L.col; ctx.fillRect(Math.round(x + sx), surface - 22, 8, 4); }
+    }
+    ctx.fillStyle = '#6e6a62'; ctx.fillRect(0, ty + 1, vw, 3);
+    drawMetroSide(L, vw / 2, ty - 20, rock);
+  } else if (R.view === 'outside') {
     const horizon = Math.round(vh * 0.62), deckY = horizon + 30;
     R.boards = drawRideScene(vw, vh, horizon, deckY - 20, R.s, dir, seg, steam);
     ctx.fillStyle = '#5d8a3e'; ctx.fillRect(0, deckY + 9, vw, vh - deckY - 9);
     if (steam) {
       ctx.fillStyle = '#6b4a32'; ctx.fillRect(0, deckY + 2, vw, 6);
       ctx.fillStyle = '#9aa0a6'; ctx.fillRect(0, deckY + 2, vw, 1);
-      const bx = vw / 2 + (800 - R.s) * dir * 1.3;
+      const bx = vw / 2 + (B_RIVER.x + B_RIVER.w / 2 - R.s) * dir * 1.3;
       if (bx > -120 && bx < vw + 120) { ctx.fillStyle = '#4a8db5'; ctx.fillRect(Math.round(bx - 60), deckY + 8, 120, vh - deckY - 8); }
       const cx = Math.round(vw / 2);
       drawSteamTrain(cx, deckY + 2 - rock, 1, BL.t * 40);
       ctx.drawImage(SPR.kitten.idle.img[0], 0, 0, 24, 14, cx - 4, deckY - 21 - rock, 12, 7);
     } else {
-      const L = B_LINES[seg.line];
       ctx.fillStyle = '#4a4740'; ctx.fillRect(0, deckY, vw, 9);
       ctx.fillStyle = '#c9c2b6'; ctx.fillRect(0, deckY + 1, vw, 5);
       for (let j = -1; j < vw / 70 + 2; j++) {
-        const x = Math.round(j * 70 - (((R.s * 1.3 * dir) % 70) + 70) % 70);
+        const x = Math.round(j * 70 - wrap(R.s * 1.3 * dir, 70));
         ctx.fillStyle = '#6e6a62'; ctx.fillRect(x, deckY + 9, 8, vh - deckY - 9);
       }
-      const tw = 56, ty = deckY - 21, tx0 = Math.round(vw / 2 - tw * 1.5);
-      for (let i = 0; i < 3; i++) {
-        const x = tx0 + i * tw;
-        ctx.fillStyle = '#2b2220'; ctx.fillRect(x, ty - rock, tw - 1, 21);
-        ctx.fillStyle = '#eceaf0'; ctx.fillRect(x + 1, ty + 1 - rock, tw - 3, 19);
-        ctx.fillStyle = L.col; ctx.fillRect(x + 1, ty + 13 - rock, tw - 3, 5); ctx.fillRect(x + 1, ty + 1 - rock, tw - 3, 2);
-        for (let wx = 4; wx < tw - 8; wx += 9) { ctx.fillStyle = '#3a4a58'; ctx.fillRect(x + wx, ty + 5 - rock, 7, 6); }
-        ctx.fillStyle = '#9a9aa6'; ctx.fillRect(x + tw / 2 - 3, ty + 4 - rock, 6, 13);
-      }
-      ctx.drawImage(SPR.kitten.idle.img[0], 0, 0, 24, 14, tx0 + tw + 12, ty + 3 - rock, 12, 7);
+      drawMetroSide(L, vw / 2, deckY - 21, rock);
     }
   } else {
-    drawCoach(vw, vh, R, seg, steam, dir, rock);
+    drawCoach(vw, vh, R, seg, steam, dir, rock, under);
   }
   drawNight(vw, vh, false);
   if (BL.view === 'sketch') sketchFilter(vw, vh, 0, 0);
 }
-
 // Inside the coach: the city through the windows, poles, swinging handles,
 // seats, a passenger or two, and Ser Biscuit with paws on the window sill.
-function drawCoach(vw, vh, R, seg, steam, dir, rock) {
+function drawCoach(vw, vh, R, seg, steam, dir, rock, under) {
   const wy0 = Math.round(vh * 0.24), wy1 = Math.round(vh * 0.66);
   const horizon = Math.round(wy0 + (wy1 - wy0) * 0.62);
-  R.boards = drawRideScene(vw, vh, horizon, wy1 + 2, R.s, dir, seg, steam);
+  R.boards = under ? drawTunnelScene(vw, vh, horizon, wy1 + 2, R.s, dir, seg) : drawRideScene(vw, vh, horizon, wy1 + 2, R.s, dir, seg, steam);
   // The parapet of the viaduct (or the rail-side fence) rushing past just below the window.
   const wrap = (v, m) => ((v % m) + m) % m;
-  if (steam) {
+  if (under) {
+    ctx.fillStyle = '#2a2e35'; ctx.fillRect(0, wy1 - 9, vw, 11);
+  } else if (steam) {
     ctx.fillStyle = '#8fbf4a'; ctx.fillRect(0, wy1 - 10, vw, 12);
     for (let x = -wrap(R.s * 2 * dir, 30); x < vw; x += 30) { ctx.fillStyle = '#6b4a32'; ctx.fillRect(Math.round(x), wy1 - 16, 3, 16); }
   } else {
@@ -1998,9 +2420,9 @@ function cityUI() {
     for (const st of L.stations) {
       if (labelled.has(st.id)) continue;
       labelled.add(st.id);
-      const axis = linePoint(L, st.s).axis;
-      const x = st.x, y = axis === 'h' ? st.y - DECK - 40 : st.y - DECK - 55;
-      if (bOnScreen(x, y, 0)) cut(`${st.name}${B_INTERCHANGES[st.id] ? ' (change here)' : ''}`, sx(x), sy(y) - 5, { size: z > 2 ? 3.6 : 4.2, color: L.light, align: 'center' });
+      const p = linePoint(L, st.s), S = B_STATIONS[st.id];
+      const x = p.under ? S.x : st.x, y = p.under ? S.y - 30 : p.axis === 'h' ? st.y - DECK - 40 : st.y - DECK - 55;
+      if (bOnScreen(x, y, 0)) cut(`${st.name}${S.lines.length > 1 ? ' (change here)' : ''}`, sx(x), sy(y) - 5, { size: z > 2 ? 3.6 : 4.2, color: L.light, align: 'center' });
     }
   }
 
@@ -2012,8 +2434,10 @@ function cityUI() {
   cut(`${SAVE.fish}`, 15, 4, { size: 6, color: '#9fd6ef' });
   drawStampIcon(4, 14, 9, 7, true);
   cut(`${SAVE.city.stamps.length}/${B_POSTCARDS.length}`, 15, 13, { size: 6, color: '#ffd25e' });
-  cut(fmtClock(k.clock), 4, 23, { size: 5, color: '#f6e9c8' });
-  if (k.boost > 0) cut(`Kaapi ${Math.ceil(k.boost)}s`, 4, 31, { size: 4.6, color: '#ffe08a' });
+  let hy = 23;
+  if (k.found.size) { drawCatIcon(4, 23); cut(`${k.found.size}/${B_HIDDEN.length}`, 15, 22, { size: 6, color: '#ffc8dc' }); hy = 32; }
+  cut(fmtClock(k.clock), 4, hy, { size: 5, color: '#f6e9c8' });
+  if (k.boost > 0) cut(`Kaapi ${Math.ceil(k.boost)}s`, 4, hy + 8, { size: 4.6, color: '#ffe08a' });
   cut(k.place, W / 2, 4, { size: 6, color: '#ffffff', align: 'center' });
   if (k.place !== k.district) cut(k.district, W / 2, 12, { size: 4.4, color: '#d8d0c2', align: 'center' });
 
@@ -2038,6 +2462,13 @@ function cityUI() {
     }
   }
 
+  if (k.title && !k.banner && !k.mapOpen) {
+    const a = Math.min(1, k.title.t * 2.5, (k.title.max - k.title.t) * 4);
+    const ty = 24;
+    band(ty - 3, 19, 0.4 * a);
+    cut(k.title.name.toUpperCase(), W / 2, ty, { size: 6, color: '#ffd25e', align: 'center', alpha: a, font: TITLE_FONT, weight: 400, stroke: 2.4 });
+    cut(k.title.sub, W / 2, ty + 8.5, { size: 4.6, color: '#ffffff', align: 'center', alpha: a });
+  }
   if (k.near && !k.mapOpen) {
     const key = input.mode === 'touch' ? 'JUMP' : input.mode === 'pad' ? 'A' : 'K';
     const kw = uwidth(key, 4.2) + 3;
@@ -2083,6 +2514,12 @@ function drawArrow(x, y, ang) {
   uctx.restore();
 }
 
+function drawCatIcon(x, y, col = '#e8a35a') {
+  urect(x, y + 1, 9, 6, INK); urect(x + 1, y + 2, 7, 4, col);
+  urect(x + 1, y - 1, 2, 2, INK); urect(x + 6, y - 1, 2, 2, INK); urect(x + 1, y, 2, 2, col); urect(x + 6, y, 2, 2, col);
+  urect(x + 3, y + 3, 1, 1, INK); urect(x + 5, y + 3, 1, 1, INK);
+}
+
 function drawStampIcon(x, y, w, h, filled) {
   urect(x - 0.5, y - 0.5, w + 1, h + 1, INK);
   urect(x, y, w, h, filled ? '#f6e9c8' : '#6e6258');
@@ -2109,7 +2546,7 @@ function drawPostcard(card) {
 
 function drawCityMini() {
   const k = BL, m = miniRect();
-  const span = 640, spanY = span * m.h / m.w;
+  const span = 760, spanY = span * m.h / m.w;
   const s = m.w / span;
   const wx0 = clamp(k.x - span / 2, 0, BW - span), wy0 = clamp(k.y - spanY / 2, 0, BH - spanY);
   ubox(m.x - 1.5, m.y - 1.5, m.w + 3, m.h + 3, '#1d1816', '#e9e4dc');
@@ -2139,44 +2576,59 @@ function drawCityMini() {
 }
 
 function drawMetroLines(X, Y, wid) {
+  // Underground stretches are drawn dashed.
   for (const L of Object.values(B_LINES)) {
     uctx.strokeStyle = L.col;
     uctx.lineWidth = wid;
-    uctx.beginPath();
-    L.pts.forEach(([x, y], i) => (i ? uctx.lineTo(X(x), Y(y)) : uctx.moveTo(X(x), Y(y))));
-    uctx.stroke();
+    for (const g of L.segs) {
+      uctx.setLineDash(g.under ? [wid * 1.6, wid] : []);
+      uctx.beginPath(); uctx.moveTo(X(g.x0), Y(g.y0)); uctx.lineTo(X(g.x1), Y(g.y1)); uctx.stroke();
+    }
+    uctx.setLineDash([]);
   }
   uctx.strokeStyle = '#3a2618';
   uctx.setLineDash([1, 1]);
   uctx.lineWidth = wid * 0.8;
-  uctx.beginPath(); uctx.moveTo(X(60), Y(RAIL_Y)); uctx.lineTo(X(1470), Y(RAIL_Y)); uctx.stroke();
+  uctx.beginPath(); uctx.moveTo(X(B_RAIL.x0), Y(RAIL_Y)); uctx.lineTo(X(B_RAIL.x1), Y(RAIL_Y)); uctx.stroke();
   uctx.setLineDash([]);
 }
 
 function drawCityMap() {
-  const k = BL, M = mapLayout();
+  const k = BL, M = mapLayout(), z = k.mapZoom;
   urect(0, 0, W, H, '#100e0d', 0.72);
-  utitle('NAMMA BENGALURU', W / 2, 3, 6, '#ffd25e');
+  utitle(k.mapFor ? 'WHERE TO, SAAR?' : 'NAMMA BENGALURU', W / 2, 3, 6, '#ffd25e');
   ubox(M.vx - 2, M.vy - 2, M.vw + 4, M.vh + 4, '#1d1816', '#e9e4dc');
   uctx.save();
   uctx.beginPath(); uctx.rect(M.vx, M.vy, M.vw, M.vh); uctx.clip();
   uctx.imageSmoothingEnabled = false;
   uctx.drawImage(k.mini, M.X(0), M.Y(0), BW * M.s, BH * M.s);
-  drawMetroLines(M.X, M.Y, k.mapZoom > 1 ? 1.6 : 1.1);
-  const lab = k.mapZoom > 1 ? 4.4 : 3.4;
-  // District names, skipping any that would collide with one already drawn.
+  drawMetroLines(M.X, M.Y, z > 2 ? 1.8 : z > 1 ? 1.4 : 1.1);
+  const on = (x, y, pad = 0) => x > M.vx - pad && x < M.vx + M.vw + pad && y > M.vy - pad && y < M.vy + M.vh + pad;
+  // Labels never pile up: each one only goes where nothing is written yet.
   const placed = [];
-  for (const d of [...B_DISTRICTS].sort((a, b) => b.w * b.h - a.w * a.h)) {
-    const w = uwidth(d.name, lab), x = M.X(d.x + d.w / 2), y = M.Y(d.y + d.h / 2) - 2;
-    const box = { x: x - w / 2 - 1, y: y - 1, w: w + 2, h: lab * 1.4 };
-    if (placed.some(p => p.x < box.x + box.w && box.x < p.x + p.w && p.y < box.y + box.h && box.y < p.y + p.h)) continue;
-    placed.push(box);
-    cut(d.name, x, y, { size: lab, color: 'rgba(255,255,255,0.78)', align: 'center', stroke: 0.9 });
+  const free = bx => !placed.some(p => p.x < bx.x + bx.w && bx.x < p.x + p.w && p.y < bx.y + bx.h && bx.y < p.y + p.h);
+  const label = (text, x, y, size, color, align = 'center') => {
+    const w = uwidth(text, size), bx = { x: align === 'center' ? x - w / 2 - 1 : x - 1, y: y - 1, w: w + 2, h: size * 1.3 };
+    if (!free(bx)) return false;
+    placed.push(bx);
+    cut(text, x, y, { size, color, align, stroke: 0.9 });
+    return true;
+  };
+  const lab = z > 2 ? 4.6 : z > 1 ? 4.2 : 3.4;
+  for (const t of mapTargets()) { const x = M.X(t.x), y = M.Y(t.y); if (on(x, y, 6)) placed.push({ x: x - 3, y: y - 3, w: 6, h: 6 }); }
+  const cards = new Set(B_POSTCARDS.map(p => p.name.toLowerCase()));
+  for (const d of [...B_DISTRICTS].slice(1).sort((a, b) => b.w * b.h - a.w * a.h)) {
+    if (z > 1 && cards.has(d.name.toLowerCase())) continue;
+    const x = M.X(d.x + d.w / 2), y = M.Y(d.y + d.h / 2) - 2;
+    if (on(x, y)) label(z > 1 ? d.name.toUpperCase() : d.name, x, y, lab, 'rgba(255,255,255,0.8)');
   }
   for (const tr of k.trains) { const p = linePoint(B_LINES[tr.line], tr.s); urect(M.X(p.x) - 1.2, M.Y(p.y) - 1.2, 2.4, 2.4, '#ffffff'); }
+  if (z > 1) for (const a of B_AUTO_STANDS) { const x = M.X(a.x), y = M.Y(a.y); if (on(x, y)) { urect(x - 1.8, y - 1.8, 3.6, 3.6, INK); urect(x - 1.2, y - 1.2, 2.4, 2.4, '#f0c419'); } }
+  for (const h of B_HIDDEN) if (k.found.has(h.name)) { const x = M.X(h.x), y = M.Y(h.y); urect(x - 1.2, y - 1.2, 2.4, 2.4, '#ffc8dc'); }
   const sel = k.mapSel;
   for (const t of mapTargets()) {
     const x = M.X(t.x), y = M.Y(t.y);
+    if (!on(x, y, 6)) continue;
     if (t.kind === 'station') { urect(x - 1.6, y - 1.6, 3.2, 3.2, INK); urect(x - 1.1, y - 1.1, 2.2, 2.2, '#ffffff'); }
     else drawStampIcon(x - 2.5, y - 2, 5, 4, t.done);
     if (sel && t.id === sel.id) {
@@ -2185,21 +2637,58 @@ function drawCityMap() {
       uctx.strokeRect(x - 4, y - 4, 8, 8);
     }
   }
+  // Names of landmarks (zoomed in) and stations (zoomed right in), the selection's first.
+  if (sel) { const x = M.X(sel.x), y = M.Y(sel.y); if (on(x, y)) label(sel.name, x, y + 4, lab, '#ffd25e'); }
+  if (z > 1) for (const t of mapTargets()) {
+    if (t === sel || t.kind === 'station' && z < 4) continue;
+    const x = M.X(t.x), y = M.Y(t.y);
+    if (on(x, y)) label(t.kind === 'station' ? t.name.replace(/ metro$/, '') : t.name, x, y + 4, lab * 0.9, t.kind === 'station' ? '#d8d0c2' : t.done ? '#ffe9a0' : '#ffffff');
+  }
   if (k.waypoint) drawArrow(M.X(k.waypoint.x), M.Y(k.waypoint.y) - 6, Math.PI / 2);
   uimg(SPR.kitten.idle.img[0], M.X(k.x) - 4, M.Y(k.y) - 9, 8, 10);
   uctx.restore();
-  if (sel) {
-    const status = sel.kind === 'station' ? 'Namma Metro station' : sel.done ? 'Postcard collected' : 'Postcard to find';
-    const txt = `${sel.name}  -  ${status}`;
-    const w = uwidth(txt, 5.5) + 10;
+
+  const status = t => (t.kind === 'station' ? `Namma Metro: ${t.lines.map(l => B_LINES[l].name).join(', ')}` : t.done ? 'Postcard collected' : 'Postcard to find');
+  if (M.side) {
+    // Left: progress and a key to the symbols. Right: the selected place.
+    const lx = 4, lw = M.side - 2;
+    ubox(lx, M.vy - 2, lw, M.vh + 4, 'rgba(29,24,22,0.9)');
+    let y = M.vy + 2;
+    drawStampIcon(lx + 4, y + 1, 7, 5, true); cut(`${SAVE.city.stamps.length}/${B_POSTCARDS.length}`, lx + 14, y, { size: 5.2, color: '#ffd25e' }); y += 8;
+    cut('postcards', lx + 4, y, { size: 4, color: '#d8d0c2' }); y += 9;
+    drawCatIcon(lx + 4, y + 1); cut(`${k.found.size}/${B_HIDDEN.length}`, lx + 15, y, { size: 5.2, color: '#ffc8dc' }); y += 8;
+    cut('hidden cats', lx + 4, y, { size: 4, color: '#d8d0c2' }); y += 11;
+    const key = [
+      [() => drawStampIcon(lx + 4, y + 0.5, 5, 4, false), 'to find'], [() => drawStampIcon(lx + 4, y + 0.5, 5, 4, true), 'collected'],
+      [() => { urect(lx + 4.5, y + 0.5, 4, 4, INK); urect(lx + 5, y + 1, 3, 3, '#ffffff'); }, 'metro station'],
+      [() => { urect(lx + 4.5, y + 0.5, 4, 4, INK); urect(lx + 5, y + 1, 3, 3, '#f0c419'); }, 'auto stand'],
+      [() => uimg(SPR.kitten.idle.img[0], lx + 3, y - 1, 6, 7), 'you'],
+    ];
+    for (const [icon, text] of key) { if (y > M.vy + M.vh - 6) break; icon(); cut(text, lx + 12, y, { size: 4, color: '#f1ebdf' }); y += 7; }
+    if (sel) {
+      const rx = W - M.side + 2, rw = M.side - 6;
+      ubox(rx, M.vy - 2, rw, M.vh + 4, 'rgba(29,24,22,0.9)');
+      let ry = M.vy + 2;
+      for (const l of bWrap(sel.name, rw - 6, 5.4)) { cut(l, rx + 3, ry, { size: 5.4, color: '#ffd25e' }); ry += 7; }
+      ry += 1;
+      for (const l of bWrap(status(sel), rw - 6, 4.2)) { cut(l, rx + 3, ry, { size: 4.2, color: '#d8d0c2' }); ry += 6; }
+      cut(`${fmtDist(bMetres(k, sel))} away`, rx + 3, ry + 1, { size: 4.6, color: '#ffffff' }); ry += 9;
+      const tip = metroTip(k, sel);
+      if (tip) for (const l of bWrap(tip, rw - 6, 4.2)) { if (ry > M.vy + M.vh - 5) break; cut(l, rx + 3, ry, { size: 4.2, color: '#c9a3e6' }); ry += 6; }
+    }
+  } else if (sel) {
+    const txt = `${sel.name}  -  ${status(sel)}  -  ${fmtDist(bMetres(k, sel))}`;
+    const w = uwidth(txt, 5.2) + 10;
     const by = M.Y(sel.y) > H / 2 ? M.vy + 2 : M.vy + M.vh - 12;
     ubox(W / 2 - w / 2, by, w, 10, 'rgba(29,24,22,0.9)');
-    cut(txt, W / 2, by + 1.6, { size: 5.5, color: '#ffd25e', align: 'center' });
+    cut(txt, W / 2, by + 1.8, { size: 5.2, color: '#ffd25e', align: 'center' });
   }
-  if (input.mode === 'touch') cut('Tap a place to head there. MAP to close.', W / 2, H - 10, { size: 4.6, color: '#d8d0c2', align: 'center' });
-  else if (input.mode === 'pad') cut('D-pad: choose   A: go there   B: zoom   Select: close', W / 2, H - 10, { size: 4.6, color: '#d8d0c2', align: 'center' });
+  const next = B_MAP_ZOOMS[(B_MAP_ZOOMS.indexOf(z) + 1) % B_MAP_ZOOMS.length];
+  const go = k.mapFor ? 'Take the auto' : 'Go there';
+  if (input.mode === 'touch') cut(k.mapFor ? 'Tap a place, then tap it again to go. MAP to close.' : 'Tap to zoom, tap a place twice to go there. MAP to close.', W / 2, H - 10, { size: 4.6, color: '#d8d0c2', align: 'center' });
+  else if (input.mode === 'pad') cut(`D-pad: choose   A: ${go.toLowerCase()}   B: zoom   Select: close`, W / 2, H - 10, { size: 4.6, color: '#d8d0c2', align: 'center' });
   else {
-    const items = [['Arrows', 'Choose'], ['K', 'Go there'], ['V', k.mapZoom > 1 ? 'Zoom out' : 'Zoom in'], ['M', 'Close']];
+    const items = [['Arrows', 'Choose'], ['K', go], ['V', next > z ? 'Zoom in' : 'Zoom out'], ['M', 'Close']];
     const total = items.reduce((s, [a, b]) => s + uwidth(a, 4.2) + 5 + uwidth(b, 4.4) + 8, -8);
     let x = W / 2 - total / 2;
     for (const [a, b] of items) x += keyHint(a, b, x, H - 10) + 8;
@@ -2222,7 +2711,7 @@ function rideUI() {
       L.stations.forEach((s, ri) => {
         const sy = y0 + ri * gap, here = s.id === R.from, sel = R.sel.col === ci && R.sel.row === ri;
         urect(cx - 2.5, sy - 2.5, 5, 5, INK);
-        urect(cx - 1.8, sy - 1.8, 3.6, 3.6, here ? '#ff8a7a' : B_INTERCHANGES[s.id] ? '#ffd25e' : '#ffffff');
+        urect(cx - 1.8, sy - 1.8, 3.6, 3.6, here ? '#ff8a7a' : B_STATIONS[s.id].lines.length > 1 ? '#ffd25e' : '#ffffff');
         cut(here ? `${s.name} (here)` : s.name, cx + 5, sy - 2.6, { size: 4.3, color: sel ? '#ffd25e' : here ? '#ff8a7a' : '#ffffff' });
         if (sel) drawArrow(cx - 7, sy, 0);
         R.hits.push({ x: cx + 22, y: sy, sel: { col: ci, row: ri } });
@@ -2239,15 +2728,16 @@ function rideUI() {
     return;
   }
   const seg = R.segs[R.seg];
-  const steam = R.kind === 'steam';
-  const col = steam ? '#8a2f2a' : B_LINES[seg.line].col, light = steam ? '#f2c94c' : B_LINES[seg.line].light;
+  const steam = R.kind === 'steam', auto = R.kind === 'auto';
+  const col = steam ? '#8a2f2a' : auto ? '#2e7d32' : B_LINES[seg.line].col, light = steam ? '#f2c94c' : auto ? '#f0c419' : B_LINES[seg.line].light;
+  const rideName = steam ? 'Malgudi Express' : auto ? 'Auto-rickshaw' : B_LINES[seg.line].name;
   const z = canvas.width / W;
   // Station name boards on the platforms outside.
   for (const b of R.boards || []) if (b.x > -40 && b.x < canvas.width + 40) cut(b.text, b.x / z, b.y / z - 2.6, { size: 5, color: b.color, align: 'center', outline: null });
   const Lay = R.layout;
   if (Lay) {
     // LED board: the next station, scrolling.
-    const msg = R.t < 0.4 || R.speed < 1 && R.t > 1 ? `${seg.toName}` : `Next station: ${seg.toName}   ${steam ? 'Malgudi Express' : B_LINES[seg.line].name}`;
+    const msg = R.t < 0.4 || R.speed < 1 && R.t > 1 ? `${seg.toName}` : `Next station: ${seg.toName}   ${rideName}`;
     const lx = Lay.led.x / z, ly = Lay.led.y / z, lw = Lay.led.w / z;
     uctx.save();
     uctx.beginPath(); uctx.rect(lx, ly, lw, Lay.led.h / z); uctx.clip();
@@ -2271,10 +2761,16 @@ function rideUI() {
   }
   band(0, 14, 0.55);
   urect(0, 13, W, 1, col);
-  cut(`${steam ? 'Malgudi Express' : B_LINES[seg.line].name}  >  ${seg.toName}`, 6, 3.5, { size: 6, color: light });
+  cut(`${rideName}  >  ${seg.toName}`, 6, 3.5, { size: 6, color: light });
   cut(fmtClock(BL.clock), W - 6, 3.5, { size: 6, color: '#f6e9c8', align: 'right' });
   const cw = uwidth(fmtClock(BL.clock), 6) + 14;
-  if (input.mode === 'keys') keyHint('V', R.view === 'window' ? 'Outside view' : 'Window view', W - 6 - cw, 4, 'right');
+  if (auto) {
+    // The meter, ticking up in real kilometres.
+    const km = (R.metres / 1000) * clamp((R.s - seg.a) / (seg.b - seg.a || 1), 0, 1);
+    const mw = 44, mx = W / 2 - mw / 2, my = 18;
+    ubox(mx, my, mw, 12, '#1d1816', '#f0c419');
+    cut(`${km.toFixed(1)} km`, W / 2, my + 2.2, { size: 5.5, color: '#ff9a3a', align: 'center', outline: null });
+  } else if (input.mode === 'keys') keyHint('V', R.view === 'window' ? 'Outside view' : 'Window view', W - 6 - cw, 4, 'right');
   else cut(input.mode === 'pad' ? 'LB: change view' : 'VIEW: change view', W - 6 - cw, 4.5, { size: 4.4, color: '#d8d0c2', align: 'right' });
   if (R.caption) {
     const a = Math.min(1, R.caption.t * 3);

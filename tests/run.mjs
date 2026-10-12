@@ -150,26 +150,28 @@ async function suiteCity(browser) {
 
   // Layout audit: things that overlap, sit in water, or can't be reached.
   const audit = await page.evaluate(() => {
-    const out = { overlap: [], road: [], water: [], unreachable: [], signs: [], facts: [], misc: [] };
+    const out = { overlap: [], road: [], hidesRoad: [], water: [], unreachable: [], signs: [], facts: [], misc: [] };
     const rectOf = b => ({ x: b.x - b.fw / 2, y: b.y - b.fd, w: b.fw, h: b.fd });
     const hit = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
     const named = b => `${b.spr}${b.signs && b.signs[0] ? ` "${b.signs[0].text}"` : ''} @${b.x},${b.y}`;
     const solidB = B_BUILDINGS.filter(b => b.fw);
-    for (let i = 0; i < solidB.length; i++) {
-      for (let j = i + 1; j < solidB.length; j++) if (hit(rectOf(solidB[i]), rectOf(solidB[j]))) out.overlap.push(`${named(solidB[i])} overlaps ${named(solidB[j])}`);
-      const r = rectOf(solidB[i]);
-      for (const road of B_ROADS) if (!solidB[i].island && hit(r, road)) out.road.push(`${named(solidB[i])} sits on ${road.name}`);
-      for (const l of B_LAKES) if (inEll(r.x + r.w / 2, r.y + r.h / 2, l, l.rx + r.w / 2, l.ry + r.h / 2)) out.water.push(`${named(solidB[i])} is in ${l.name}`);
-      if (hit(r, B_RIVER)) out.water.push(`${named(solidB[i])} is in the Sarayu`);
-      if (r.x < 0 || r.y < 0 || r.x + r.w > BW || r.y + r.h > BH) out.misc.push(`${named(solidB[i])} is outside the map`);
+    const cell = new Map();
+    for (const b of solidB) { const k = `${Math.floor(b.x / 400)},${Math.floor(b.y / 400)}`; if (!cell.has(k)) cell.set(k, []); cell.get(k).push(b); }
+    const around = b => { const near = []; const cx = Math.floor(b.x / 400), cy = Math.floor(b.y / 400); for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) near.push(...(cell.get(`${cx + i},${cy + j}`) || [])); return near; };
+    for (const a of solidB) {
+      const r = rectOf(a);
+      for (const b of around(a)) if (a !== b && (a.x < b.x || a.x === b.x && a.y < b.y) && hit(r, rectOf(b))) out.overlap.push(`${named(a)} overlaps ${named(b)}`);
+      for (const g of B_RSEGS) if (!a.island && rectSegDist(r, g) < g.hw) out.road.push(`${named(a)} sits on ${g.road.name}`);
+      // The picture above the footprint must not hide a road's carriageway.
+      const pr = bPicRect(a), above = { x: pr.x, y: pr.y, w: pr.w, h: r.y - pr.y };
+      if (above.h > 0 && !a.island) for (const g of B_RSEGS) if (rectSegDist(above, g) < g.hw - 4) { out.hidesRoad.push(`${named(a)} hides ${g.road.name}`); break; }
+      for (const l of B_LAKES) if (inEll(r.x + r.w / 2, r.y + r.h / 2, l, l.rx + r.w / 2, l.ry + r.h / 2)) out.water.push(`${named(a)} is in ${l.name}`);
+      if (hit(r, B_RIVER)) out.water.push(`${named(a)} is in the Sarayu`);
+      if (r.x < 0 || r.y < 0 || r.x + r.w > BW || r.y + r.h > BH) out.misc.push(`${named(a)} is outside the map`);
+      // A building south of another must not cover its front with its picture.
+      for (const b of around(a)) if (b !== a && b.y > a.y && b.img.height > 30 && hit(bFrontRect(a), bPicRect(b))) out.overlap.push(`${named(b)} hides the front of ${named(a)}`);
     }
-    // Sprites drawn on top of each other: a later building's picture covering an earlier one's front.
-    for (const a of B_BUILDINGS) for (const b of B_BUILDINGS) {
-      if (a === b || !a.fw || !b.fw || b.y <= a.y) continue;
-      const front = { x: a.x - a.img.width / 2 + 4, y: a.y - 8, w: a.img.width - 8, h: 8 };
-      const pic = { x: b.x - b.img.width / 2, y: b.y - b.img.height, w: b.img.width, h: b.img.height };
-      if (hit(front, pic) && b.img.height > 30) out.overlap.push(`${named(b)} hides the front of ${named(a)}`);
-    }
+    for (const L of Object.values(B_LINES)) for (const g of L.segs) if (!g.under && g.axis === 'd') out.misc.push(`${L.name} has a slanting elevated stretch at ${g.x0},${g.y0}`);
     // Flood fill the walkable grid from the start.
     const seen = new Uint8Array(BGW * BGH);
     const q = [Math.floor(B_START.y / BCELL) * BGW + Math.floor(B_START.x / BCELL)];
@@ -204,7 +206,10 @@ async function suiteCity(browser) {
     // Signs must fit on their buildings at street zoom.
     for (const b of B_BUILDINGS) for (const g of b.signs || []) {
       const w = uwidth(g.text, g.size);
-      if (g.x - w / 2 < -2 || g.x + w / 2 > b.img.width + 2) out.signs.push(`"${g.text}" (${w.toFixed(0)}px) does not fit ${b.spr} (${b.img.width}px)`);
+      const a = g.anchor ? b.img.anchors && b.img.anchors[g.anchor] : { x: g.x };
+      if (!a) { out.signs.push(`"${g.text}" has no ${g.anchor} anchor on ${b.spr}`); continue; }
+      const lo = a.w ? a.x - a.w / 2 - 1 : -2, hi = a.w ? a.x + a.w / 2 + 1 : b.img.width + 2;
+      if (a.x - w / 2 < lo || a.x + w / 2 > hi) out.signs.push(`"${g.text}" (${w.toFixed(0)}px) does not fit ${b.spr} (${a.w ? `${a.w}px board` : `${b.img.width}px`})`);
     }
     // Postcard facts fit on the card (four lines at most).
     for (const pc of B_POSTCARDS) {
@@ -220,6 +225,7 @@ async function suiteCity(browser) {
   });
   report('city', 'buildings do not overlap', audit.overlap);
   report('city', 'buildings stay off roads', audit.road);
+  report('city', 'buildings do not hide roads', audit.hidesRoad);
   report('city', 'buildings stay out of water', audit.water);
   report('city', 'everything is reachable on foot', audit.unreachable, `${audit.reachable} walkable cells`);
   report('city', 'signs fit their buildings', audit.signs);
@@ -230,7 +236,7 @@ async function suiteCity(browser) {
   const rides = await page.evaluate(() => {
     const problems = [];
     let n = 0;
-    const runRide = () => { for (let i = 0; i < 60 * 40 && BL.ride; i++) { cityTick(1 / 60); if (i % 30 === 0) { cityDraw(); uiClear(); cityUI(); } consumeInput(); } };
+    const runRide = () => { for (let i = 0; i < 60 * 60 && BL.ride; i++) { cityTick(1 / 60); if (i % 30 === 0) { cityDraw(); uiClear(); cityUI(); } consumeInput(); } };
     for (const from of Object.values(B_STATIONS)) {
       B_COLS.forEach((lid, col) => B_LINES[lid].stations.forEach((to, row) => {
         if (to.id === from.id) return;
@@ -360,55 +366,75 @@ async function suiteText(browser) {
 
 async function suiteShots(browser) {
   fs.mkdirSync(OUT, { recursive: true });
+  // Scenes are found by postcard or station id, so they follow the map.
   const scenes = [
-    ['vidhana-soudha', [2640, 1381, 'street']],
-    ['cubbon-high-court', [2330, 1600, 'street']],
-    ['bangalore-palace', [2535, 640, 'street']],
-    ['majestic-ksr', [1240, 1420, 'street']],
-    ['mg-road', [3600, 1960, 'street']],
-    ['ulsoor', [4250, 680, 'street']],
-    ['kr-market-fort', [1150, 2520, 'street']],
-    ['basavanagudi', [1150, 3360, 'street']],
-    ['lalbagh', [2250, 2680, 'street']],
-    ['jayanagar', [2300, 3290, 'street']],
-    ['koramangala-silk-board', [3100, 3420, 'street']],
-    ['malgudi-station', [330, 1080, 'street']],
-    ['malgudi-swami', [560, 2100, 'street']],
-    ['drone', [2600, 1700, 'drone']],
-    ['sketch', [560, 2100, 'sketch']],
-    ['night', [3600, 1960, 'street', 'night']],
-    ['map', [2640, 1381, 'street', 'map']],
-    ['metro-picker', [1528, 1430, 'street', 'pick']],
-    ['metro-ride', [1528, 1430, 'street', 'ride']],
-    ['steam-ride', [330, 1046, 'street', 'steam']],
-    ['metro-outside', [1528, 1430, 'street', 'ride-outside']],
-    ['yellow-line', [2078, 3470, 'street', 'ride-yellow']],
-    ['vidhana-full', [2640, 1500, 'drone']],
-    ['title', null],
+    { name: 'vidhana-soudha', pc: 'vidhana' },
+    { name: 'cubbon-high-court', pc: 'highcourt' },
+    { name: 'cubbon-museums', pc: 'govmuseum' },
+    { name: 'bangalore-palace', pc: 'palace' },
+    { name: 'majestic-ksr', pc: 'ksr' },
+    { name: 'mg-road', pc: 'brigade' },
+    { name: 'shivajinagar', pc: 'stmarys' },
+    { name: 'commercial-street', pc: 'commercial' },
+    { name: 'ulsoor', pc: 'ulsoor' },
+    { name: 'someshwara', pc: 'someshwara' },
+    { name: 'indiranagar', pc: 'indiranagar' },
+    { name: 'malleswaram', pc: 'malleswaram' },
+    { name: 'iskcon', pc: 'iskcon' },
+    { name: 'kr-market-fort', pc: 'krmarket' },
+    { name: 'basavanagudi', pc: 'bulltemple' },
+    { name: 'gavi-gangadhareshwara', pc: 'gavi' },
+    { name: 'lalbagh', pc: 'glasshouse' },
+    { name: 'jayanagar', pc: 'jayanagar' },
+    { name: 'koramangala', pc: 'koramangala' },
+    { name: 'silk-board', pc: 'silkboard' },
+    { name: 'malgudi-station', pc: 'malgudi' },
+    { name: 'malgudi-swami', pc: 'swami' },
+    { name: 'drone', pc: 'cubbon', view: 'drone' },
+    { name: 'vidhana-full', pc: 'vidhana', view: 'drone', dy: 110 },
+    { name: 'sketch', pc: 'swami', view: 'sketch' },
+    { name: 'night', pc: 'brigade', extra: 'night' },
+    { name: 'district-title', pc: 'malleswaram', extra: 'title' },
+    { name: 'map', pc: 'vidhana', extra: 'map' },
+    { name: 'map-zoomed', pc: 'cubbon', extra: 'map-zoom' },
+    { name: 'metro-picker', st: 'majestic', extra: 'pick' },
+    { name: 'metro-ride', st: 'mgroad', extra: 'ride', to: ['purple', 'indiranagar'] },
+    { name: 'metro-outside', st: 'mgroad', extra: 'ride-outside', to: ['purple', 'indiranagar'] },
+    { name: 'metro-underground', st: 'majestic', extra: 'ride', to: ['purple', 'vidhana'] },
+    { name: 'metro-underground-outside', st: 'majestic', extra: 'ride-outside', to: ['purple', 'vidhana'] },
+    { name: 'yellow-line', st: 'rvroad', extra: 'ride', to: ['yellow', 'silkboard'] },
+    { name: 'steam-ride', pc: 'malgudi', extra: 'steam' },
+    { name: 'auto-ride', pc: 'brigade', extra: 'auto' },
+    { name: 'title' },
   ];
   const { page, errors } = await openGame(browser);
   await page.evaluate(() => { SAVE.city = { stamps: [] }; startCity(); });
-  for (const [name, sc] of scenes) {
-    if (sc) {
-      await page.evaluate(([x, y, view, extra]) => {
+  for (const sc of scenes) {
+    if (sc.name !== 'title') {
+      await page.evaluate(sc => {
         closePanels();
-        BL.ride = null; BL.mapOpen = false; BL.x = x; BL.y = y; BL.view = view; BL.clock = extra === 'night' ? 21 * 60 : 9 * 60;
+        const at = sc.pc ? B_POSTCARDS.find(p => p.id === sc.pc) : B_STATIONS[sc.st];
+        BL.ride = null; BL.mapOpen = false; BL.x = at.x; BL.y = at.y + (sc.dy || 0); BL.view = sc.view || 'street'; BL.clock = sc.extra === 'night' ? 21 * 60 : 9 * 60;
         for (let i = 0; i < 200; i++) { cityTick(1 / 60); consumeInput(); }
-        BL.banner = BL.card = BL.toast = null; BL.t = 30;
-        if (extra === 'map') openCityMap();
-        if (extra === 'pick') openRidePicker(B_STATIONS.majestic);
-        BL.rideView = extra === 'ride-outside' ? 'outside' : 'window';
-        if (extra && extra.startsWith('ride')) {
-          const yellow = extra === 'ride-yellow';
-          openRidePicker(yellow ? B_STATIONS.rvroad : B_STATIONS.majestic);
-          BL.ride.sel = yellow ? { col: 2, row: 4 } : { col: 0, row: 4 };
+        // Pop-ups would hide the scene; keep the district title only where it is the subject.
+        BL.banner = BL.card = BL.toast = null; BL.t = 30; BL.titleAt = 30; BL.titled = bDistrictAt(BL.x, BL.y).name;
+        BL.title = sc.extra === 'title' ? { name: BL.titled, sub: bDistrictAt(BL.x, BL.y).blurb, t: 2, max: 3.4 } : null;
+        if (sc.extra === 'map') openCityMap();
+        if (sc.extra === 'map-zoom') { openCityMap(); BL.mapZoom = 4.4; }
+        if (sc.extra === 'pick') openRidePicker(B_STATIONS[sc.st]);
+        BL.rideView = sc.extra === 'ride-outside' ? 'outside' : 'window';
+        if (sc.to) {
+          openRidePicker(B_STATIONS[sc.st]);
+          const col = B_COLS.indexOf(sc.to[0]);
+          BL.ride.sel = { col, row: B_LINES[sc.to[0]].stations.findIndex(s => s.id === sc.to[1]) };
           confirmRide(); for (let i = 0; i < 220; i++) cityTick(1 / 60); BL.ride.caption = null;
         }
-        if (extra === 'steam') { startSteamRide(0); for (let i = 0; i < 200; i++) cityTick(1 / 60); }
+        if (sc.extra === 'steam') { startSteamRide(0); for (let i = 0; i < 200; i++) cityTick(1 / 60); }
+        if (sc.extra === 'auto') { BL.waypoint = { id: 'glasshouse', name: 'Lalbagh Glass House', ...B_POSTCARDS.find(p => p.id === 'glasshouse') }; startAutoRide(B_AUTO_STANDS[1]); for (let i = 0; i < 160; i++) cityTick(1 / 60); BL.ride.caption = null; }
       }, sc);
     } else await page.evaluate(() => goToTitle());
     await new Promise(r => setTimeout(r, 120));
-    await page.screenshot({ path: path.join(OUT, `${name}.png`) });
+    await page.screenshot({ path: path.join(OUT, `${sc.name}.png`) });
   }
   report('shots', `${scenes.length} screenshots saved to tests/output/`, errors);
   await page.close();
