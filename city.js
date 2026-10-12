@@ -708,7 +708,7 @@ function groundTile(tx, ty) {
   }
   c.putImageData(img, 0, 0);
   BL.tiles.set(key, cv);
-  while (BL.tiles.size > 48) BL.tiles.delete(BL.tiles.keys().next().value);
+  while (BL.tiles.size > 72) BL.tiles.delete(BL.tiles.keys().next().value);
   return cv;
 }
 
@@ -1426,7 +1426,6 @@ window.addEventListener('pointerdown', e => {
 // way) and auto-rickshaws (straight to the marked destination).
 // ---------------------------------------------------------------------------
 const B_COLS = ['purple', 'green', 'yellow'];
-// What you see from the train; V switches.
 
 // The lines to ride from one station to another, changing at interchanges:
 // a list of legs { line, a, b } with station ids.
@@ -1464,6 +1463,37 @@ function openRidePicker(st) {
   sfx.chime();
 }
 
+// How a ride moves along its track, like a real vehicle: it pulls away with
+// limited acceleration, brakes in time for the stop, and slows for bends
+// (the sharper the bend, the slower). Speeds are relative (1 = cruising);
+// `t` is the time to reach each sample, so a position can be looked up for
+// any moment of the ride.
+function bProfile(T, a, b, acc = 1 / 500, dec = 1 / 360) {
+  const dir = Math.sign(b - a) || 1, n = Math.max(2, Math.ceil(Math.abs(b - a) / 4)), ds = Math.abs(b - a) / n;
+  const v = [];
+  for (let i = 0; i <= n; i++) {
+    const sp = a + dir * i * ds;
+    const p0 = linePoint(T, sp - dir * 24), p1 = linePoint(T, sp), p2 = linePoint(T, sp + dir * 24);
+    const ax = p1.x - p0.x, ay = p1.y - p0.y, bx = p2.x - p1.x, by = p2.y - p1.y, la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
+    const c = la > 1 && lb > 1 ? (ax * bx + ay * by) / (la * lb) : 1;
+    v.push(0.25 + 0.75 * ((1 + c) / 2) ** 1.5);
+  }
+  v[0] = v[n] = 0;
+  for (let i = 1; i <= n; i++) v[i] = Math.min(v[i], Math.sqrt(v[i - 1] ** 2 + 2 * acc * ds));
+  for (let i = n - 1; i >= 0; i--) v[i] = Math.min(v[i], Math.sqrt(v[i + 1] ** 2 + 2 * dec * ds));
+  const t = [0];
+  for (let i = 1; i <= n; i++) t.push(t[i - 1] + ds / Math.max(0.02, (v[i - 1] + v[i]) / 2));
+  return { t, a, dir, ds, n, total: t[n] };
+}
+// Where a ride is at fraction k of its time, and how fast it's going (track units per unit of k).
+function bProfileAt(P, k) {
+  const T = clamp(k, 0, 1) * P.total;
+  let lo = 0, hi = P.n;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (P.t[m] <= T) lo = m; else hi = m; }
+  const dt = P.t[hi] - P.t[lo] || 1, f = clamp((T - P.t[lo]) / dt, 0, 1);
+  return { s: P.a + P.dir * (lo + f) * P.ds, v: P.ds / dt * P.total };
+}
+
 function confirmRide() {
   const R = BL.ride;
   const lineId = B_COLS[R.sel.col];
@@ -1477,7 +1507,8 @@ function confirmRide() {
     const ia = st.findIndex(x => x.id === leg.a), ib = st.findIndex(x => x.id === leg.b), step = Math.sign(ib - ia);
     for (let i = ia; i !== ib; i += step) {
       const a = st[i], b = st[i + step];
-      segs.push({ line: leg.line, a: a.s, b: b.s, toName: b.name, at: b.id, dur: 1.4 + Math.min(4, Math.abs(b.s - a.s) / 420),
+      const prof = bProfile(B_LINES[leg.line], a.s, b.s);
+      segs.push({ line: leg.line, a: a.s, b: b.s, toName: b.name, at: b.id, prof, dur: 1.4 + Math.min(4.5, prof.total / 420),
         change: i + step === ib && li < legs.length - 1 ? B_LINES[legs[li + 1].line].name : null });
     }
   });
@@ -1504,6 +1535,154 @@ function bDropPoint(x, y) {
   }
   return { x, y };
 }
+// The way an auto really goes: along the streets, turning at junctions. The
+// road network as a graph: every road piece is cut wherever another road
+// meets or crosses it, and those cuts are the junctions.
+let B_RGRAPH = null;
+function bRoadGraph() {
+  if (B_RGRAPH) return B_RGRAPH;
+  const nodes = [], index = new Map();
+  const node = (x, y) => {
+    const key = `${Math.round(x / 3)},${Math.round(y / 3)}`;
+    if (!index.has(key)) { index.set(key, nodes.length); nodes.push({ x, y, edges: [] }); }
+    return index.get(key);
+  };
+  const link = (i, j) => {
+    if (i === j) return;
+    const d = Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y);
+    nodes[i].edges.push([j, d]); nodes[j].edges.push([i, d]);
+  };
+  const cuts = B_RSEGS.map(g => [0, g.len]);
+  for (const g of B_RSEGS) {
+    for (const h of B_RSEGS) {
+      if (g === h || g.bx1 < h.bx0 - 12 || h.bx1 < g.bx0 - 12 || g.by1 < h.by0 - 12 || h.by1 < g.by0 - 12) continue;
+      // A road ending on this one (a T, or the next piece of a bend).
+      for (const [x, y] of [[h.x0, h.y0], [h.x1, h.y1]]) {
+        const t = (x - g.x0) * g.ux + (y - g.y0) * g.uy;
+        if (t < 0 || t > g.len || Math.abs((x - g.x0) * g.nx + (y - g.y0) * g.ny) > g.hw + 12) continue;
+        cuts[B_RSEGS.indexOf(g)].push(t);
+      }
+      // Two roads crossing.
+      const den = g.ux * h.uy - g.uy * h.ux;
+      if (Math.abs(den) < 1e-6) continue;
+      const t = ((h.x0 - g.x0) * h.uy - (h.y0 - g.y0) * h.ux) / den, u = ((h.x0 - g.x0) * g.uy - (h.y0 - g.y0) * g.ux) / den;
+      if (t > 0 && t < g.len && u > 0 && u < h.len) cuts[B_RSEGS.indexOf(g)].push(t);
+    }
+  }
+  const segNodes = B_RSEGS.map((g, i) => {
+    const ts = [...new Set(cuts[i].map(t => Math.round(t)))].sort((a, b) => a - b);
+    const ids = ts.map(t => node(g.x0 + g.ux * t, g.y0 + g.uy * t));
+    for (let k = 0; k + 1 < ids.length; k++) link(ids[k], ids[k + 1]);
+    return { ts, ids };
+  });
+  // Join each road end to the spot it meets on the other road.
+  B_RSEGS.forEach((g, i) => {
+    for (const [x, y] of [[g.x0, g.y0], [g.x1, g.y1]]) {
+      const me = node(x, y);
+      B_RSEGS.forEach((h, j) => {
+        if (i === j) return;
+        const t = (x - h.x0) * h.ux + (y - h.y0) * h.uy;
+        if (t < 0 || t > h.len || Math.abs((x - h.x0) * h.nx + (y - h.y0) * h.ny) > h.hw + 12) return;
+        const S = segNodes[j];
+        let best = 0;
+        S.ts.forEach((tt, k) => { if (Math.abs(tt - t) < Math.abs(S.ts[best] - t)) best = k; });
+        link(me, S.ids[best]);
+      });
+    }
+  });
+  // A road that just misses the rest (the map is drawn, not surveyed) is
+  // joined to the nearest junction of the main network.
+  const comp = new Int32Array(nodes.length).fill(-1), sizes = [];
+  for (let i = 0; i < nodes.length; i++) {
+    if (comp[i] >= 0) continue;
+    const stack = [i];
+    comp[i] = sizes.length;
+    let n = 0;
+    while (stack.length) { const k = stack.pop(); n++; for (const [j] of nodes[k].edges) if (comp[j] < 0) { comp[j] = comp[i]; stack.push(j); } }
+    sizes.push(n);
+  }
+  const main = sizes.indexOf(Math.max(...sizes));
+  sizes.forEach((_, c) => {
+    if (c === main) return;
+    let best = null;
+    nodes.forEach((a, i) => {
+      if (comp[i] !== c) return;
+      nodes.forEach((b, j) => { if (comp[j] === main) { const d = Math.hypot(a.x - b.x, a.y - b.y); if (!best || d < best.d) best = { i, j, d }; } });
+    });
+    if (best) link(best.i, best.j);
+  });
+  return (B_RGRAPH = { nodes, segNodes });
+}
+
+// The shortest drive between two points, on the left of the road like
+// everyone else; null if no road reaches.
+function bRoute(from, to) {
+  const G = bRoadGraph(), N = G.nodes;
+  // Where a point meets the road nearest it: that road piece's two ends nearest it.
+  const onRoad = pt => {
+    let best = null;
+    B_RSEGS.forEach((g, i) => {
+      const t = clamp((pt.x - g.x0) * g.ux + (pt.y - g.y0) * g.uy, 0, g.len), d = Math.hypot(g.x0 + g.ux * t - pt.x, g.y0 + g.uy * t - pt.y);
+      if (!best || d < best.d) best = { i, t, d, x: g.x0 + g.ux * t, y: g.y0 + g.uy * t };
+    });
+    if (!best || best.d > 400) return null;
+    const S = G.segNodes[best.i];
+    let k = 0;
+    while (k + 1 < S.ts.length - 1 && S.ts[k + 1] < best.t) k++;
+    return { ...best, ends: [[S.ids[k], Math.abs(best.t - S.ts[k])], [S.ids[k + 1], Math.abs(S.ts[k + 1] - best.t)]] };
+  };
+  const A = onRoad(from), B = onRoad(to);
+  if (!A || !B) return null;
+  const dist = new Float64Array(N.length).fill(Infinity), prev = new Int32Array(N.length).fill(-1), done = new Uint8Array(N.length);
+  const goal = new Map(B.ends.map(([id, d]) => [id, d]));
+  const heap = [];
+  const push = (id, d) => {
+    heap.push([d, id]);
+    for (let i = heap.length - 1; i > 0;) { const j = (i - 1) >> 1; if (heap[j][0] <= heap[i][0]) break; [heap[i], heap[j]] = [heap[j], heap[i]]; i = j; }
+  };
+  const pop = () => {
+    const top = heap[0], last = heap.pop();
+    if (heap.length) {
+      heap[0] = last;
+      for (let i = 0; ;) {
+        const l = 2 * i + 1, r = l + 1;
+        let m = i;
+        if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+        if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+        if (m === i) break;
+        [heap[i], heap[m]] = [heap[m], heap[i]]; i = m;
+      }
+    }
+    return top;
+  };
+  for (const [id, d] of A.ends) if (d < dist[id]) { dist[id] = d; push(id, d); }
+  let end = -1, endCost = Infinity;
+  while (heap.length) {
+    const [d, id] = pop();
+    if (done[id]) continue;
+    done[id] = 1;
+    if (d >= endCost) break;
+    if (goal.has(id) && d + goal.get(id) < endCost) { endCost = d + goal.get(id); end = id; }
+    for (const [j, w] of N[id].edges) if (d + w < dist[j]) { dist[j] = d + w; prev[j] = id; push(j, d + w); }
+  }
+  if (end < 0) return null;
+  const mid = [];
+  for (let id = end; id >= 0; id = prev[id]) mid.unshift([N[id].x, N[id].y]);
+  const pts = [[A.x, A.y], ...mid, [B.x, B.y]].filter((q, i, a) => !i || Math.hypot(q[0] - a[i - 1][0], q[1] - a[i - 1][1]) > 2);
+  // Keep left: shift every corner along the average of its neighbours' left-hand sides.
+  const left = pts.map((q, i) => {
+    let nx = 0, ny = 0;
+    for (const [a, b] of [[pts[i - 1], q], [q, pts[i + 1]]]) {
+      if (!a || !b) continue;
+      const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+      nx += (b[1] - a[1]) / l; ny += -(b[0] - a[0]) / l;
+    }
+    const l = Math.hypot(nx, ny) || 1;
+    return [q[0] + nx / l * 5, q[1] + ny / l * 5];
+  });
+  return [[from.x, from.y], ...left, [to.x, to.y]];
+}
+
 function startAutoRide(stand) {
   const w = BL.waypoint;
   if (!w) return;
@@ -1512,10 +1691,18 @@ function startAutoRide(stand) {
   if (dist < 160) { bToast('THAT IS JUST THERE', 'Walk it, saar. Good for health.'); return; }
   const fare = SAVE.fish >= 3 ? 3 : 0;
   if (fare) addFish(-fare);
-  const track = { segs: [{ x0: stand.x, y0: stand.y, x1: drop.x, y1: drop.y, s0: 0, len: dist, axis: 'd' }], len: dist };
+  const pts = bRoute(stand, drop) || [[stand.x, stand.y], [drop.x, drop.y]];
+  const segs = [];
+  let len = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [x0, y0] = pts[i], [x1, y1] = pts[i + 1], l = Math.hypot(x1 - x0, y1 - y0);
+    segs.push({ x0, y0, x1, y1, s0: len, len: l, axis: y0 === y1 ? 'h' : x0 === x1 ? 'v' : 'd' });
+    len += l;
+  }
+  const track = { segs, len }, prof = bProfile(track, 0, len);
   BL.ride = {
-    kind: 'auto', phase: 'ride', to: w.id, drop, fare, talk: pick(B_AUTO_TALK), metres: bMetres(stand, drop),
-    segs: [{ line: 'auto', key: `auto-${Math.round(stand.x)},${Math.round(stand.y)}-${drop.x},${drop.y}`, track, a: 0, b: dist, toName: w.name, dur: 3 + Math.min(7, dist / 900) }],
+    kind: 'auto', phase: 'ride', to: w.id, drop, fare, talk: pick(B_AUTO_TALK), metres: bMetres(stand, drop) * len / dist,
+    segs: [{ line: 'auto', key: `auto-${Math.round(stand.x)},${Math.round(stand.y)}-${drop.x},${drop.y}`, track, a: 0, b: len, prof, toName: w.name, dur: 3 + Math.min(10, prof.total / 700) }],
     seg: 0, t: 0, s: 0, speed: 0, said1: false, said2: false, caption: null,
   };
   setMusic('metro');
@@ -1536,6 +1723,7 @@ function rideTick(dt) {
     if (input.pressed.jump || input.pressed.attack) confirmRide();
     return;
   }
+  rideCamTick(R, dt);
   // Hold dash to hurry the train along.
   R.fast = R.kind !== 'auto' && input.held.dash;
   R.t += dt * (R.fast ? 3 : 1);
@@ -1558,10 +1746,9 @@ function rideTick(dt) {
     return;
   }
   const k = clamp(R.t / seg.dur, 0, 1);
-  // Trapezoid speed profile: speed up for a quarter, cruise, slow down.
-  const e = k < 0.25 ? (8 / 3) * k * k : k > 0.75 ? 1 - (8 / 3) * (1 - k) * (1 - k) : 1 / 6 + (4 / 3) * (k - 0.25);
-  R.s = seg.a + (seg.b - seg.a) * clamp(e, 0, 1);
-  R.speed = Math.abs(seg.b - seg.a) / seg.dur * (4 / 3) * (k < 0.25 ? k * 4 : k > 0.75 ? (1 - k) * 4 : 1) * (R.fast ? 3 : 1);
+  const at = bProfileAt(seg.prof, k);
+  R.s = at.s;
+  R.speed = at.v / seg.dur * (R.fast ? 3 : 1);
   if (R.kind === 'auto') {
     if (!R.said1 && R.t > 0.6) { R.said1 = true; R.caption = { kn: R.talk[0], en: `Auto to ${seg.toName}, ${fmtDist(R.metres)}. ${R.fare ? `Fare: ${R.fare} fish.` : 'Free ride!'}`, t: 3.2 }; bHorn('auto'); }
     if (!R.said2 && k > 0.72) { R.said2 = true; R.caption = { kn: R.talk[1], en: seg.toName, t: 2.6 }; }
@@ -1621,8 +1808,14 @@ function cityDraw() {
   }
   const vw = canvas.width, vh = canvas.height;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  const focus = riding ? rideFocus() : k;
-  const cx = Math.round(clamp(focus.x - vw / 2, 0, BW - vw)), cy = Math.round(clamp(focus.y - vh * (riding ? 0.5 : 0.6), 0, BH - vh));
+  if (riding) {
+    k.ride.mark = drawRideView(vw, vh);
+    drawNight(vw, vh, false);
+    if (k.view === 'sketch') sketchFilter(vw, vh, 0, 0);
+    return;
+  }
+  k.rideProj = null;
+  const cx = Math.round(clamp(k.x - vw / 2, 0, BW - vw)), cy = Math.round(clamp(k.y - vh * 0.6, 0, BH - vh));
   k.cam = { x: cx, y: cy, w: vw, h: vh, zoom };
   ctx.fillStyle = '#5d8a3e';
   ctx.fillRect(0, 0, vw, vh);
@@ -1659,7 +1852,7 @@ function cityDraw() {
     if (g.under || g.axis !== 'h' || !bOnScreen((g.x0 + g.x1) / 2, g.y0, Math.abs(g.x1 - g.x0) / 2 + 10)) continue;
     for (let x = Math.min(g.x0, g.x1) + 30; x < Math.max(g.x0, g.x1); x += 60) if (bOnScreen(x, g.y0, 10)) list.push({ y: g.y0 + 1, pillar: x, py: g.y0 });
   }
-  if (!riding) list.push({ y: k.y, kitten: true });
+  list.push({ y: k.y, kitten: true });
   list.sort((a, b) => a.y - b.y);
   let kitDone = false, hidden = false;
   for (const it of list) {
@@ -1680,10 +1873,9 @@ function cityDraw() {
     else if (it.pillar) { ctx.fillStyle = '#6e6a62'; ctx.fillRect(it.pillar - 3, it.py - 16, 6, 17); ctx.fillStyle = '#a8a294'; ctx.fillRect(it.pillar - 3, it.py - 16, 2, 17); }
     else if (it.kitten) { drawCityKitten(); kitDone = true; }
   }
-  if (hidden && !riding) { ctx.globalAlpha = 0.45; drawCityKitten(); ctx.globalAlpha = 1; }
+  if (hidden) { ctx.globalAlpha = 0.45; drawCityKitten(); ctx.globalAlpha = 1; }
   drawMetroOverlay();
-  if (riding) k.ride.mark = drawRideVehicle();
-  if (!riding && bUnderDeck(k.x, k.y)) { ctx.globalAlpha = 0.5; drawCityKitten(); ctx.globalAlpha = 1; }
+  if (bUnderDeck(k.x, k.y)) { ctx.globalAlpha = 0.5; drawCityKitten(); ctx.globalAlpha = 1; }
   drawAir();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   drawNight(vw, vh);
@@ -2189,33 +2381,337 @@ function sketchFilter(vw, vh, ox, oy) {
 const B_SKIP_RIDE = ['statue', 'ksrcanopy', 'flyover'];
 function rideTrack(seg) { return seg.track || B_LINES[seg.line]; }
 
-// Rides are seen from the air: the camera flies above the real city,
-// following the train (or the auto) along its route, so every landmark looks
-// just as it does on foot.
-function rideFocus() {
+// Rides are seen from beside the line and above it, like a drone flying
+// alongside: the camera looks across the line, so the train (or the auto)
+// runs left to right across the screen. Everything is in true perspective
+// from that camera: the real ground, buildings and trees where they stand,
+// near ones big and quick past, far ones small and slow, the far side of the
+// city fading into haze. Where the line bends, the camera swings round with
+// it. Underground, the street shows above and the train glows through it.
+const B_RCAM = { pitch: 0.5, dist: 520, scale: 1.5, far: 1500, coach: 38 };
+const wrapAngle = a => Math.atan2(Math.sin(a), Math.cos(a));
+
+function rideFocus(s = BL.ride.s) {
   const R = BL.ride, seg = R.segs[R.seg], T = rideTrack(seg);
   const dir = Math.sign(seg.b - seg.a) || 1;
-  const p = linePoint(T, R.s), q = linePoint(T, R.s + dir * 4);
-  const len = Math.hypot(q.x - p.x, q.y - p.y) || 1;
-  return { x: p.x, y: p.y, hx: (q.x - p.x) / len, hy: (q.y - p.y) / len, under: !!p.under, dir };
+  // Facing along the chord through the spot, so it swings round corners rather than snapping.
+  const p = linePoint(T, s), o = linePoint(T, s - dir * 8), q = linePoint(T, s + dir * 8);
+  const len = Math.hypot(q.x - o.x, q.y - o.y) || 1;
+  return { x: p.x, y: p.y, hx: (q.x - o.x) / len, hy: (q.y - o.y) / len, under: !!p.under, dir };
 }
 
-// The train or auto you're riding, with a marker over it.
-function drawRideVehicle() {
-  const R = BL.ride, seg = R.segs[R.seg], f = rideFocus();
+// Where the camera wants to be: facing across the line, averaged over a
+// stretch of it so it turns smoothly through bends.
+function rideCamTarget(R) {
+  const seg = R.segs[R.seg], T = rideTrack(seg), f = rideFocus();
+  const p0 = linePoint(T, R.s - f.dir * 120), p1 = linePoint(T, R.s + f.dir * 120);
+  const a = Math.hypot(p1.x - p0.x, p1.y - p0.y) > 1 ? Math.atan2(p1.y - p0.y, p1.x - p0.x) : Math.atan2(f.hy, f.hx);
+  return { a, z: R.kind === 'auto' || f.under ? 0 : DECK };
+}
+
+// The camera eases round like something with weight; a reversal is a cut.
+function rideCamTick(R, dt) {
+  const t = rideCamTarget(R);
+  if (R.camA === undefined) { R.camA = t.a; R.camZ = t.z; }
+  R.ps = R.s; R.pa = R.camA; R.pz = R.camZ;
+  const d = wrapAngle(t.a - R.camA);
+  if (Math.abs(d) > 2) R.camA = R.pa = t.a;
+  else R.camA += d * (1 - Math.exp(-dt * 2.2));
+  R.camZ += (t.z - R.camZ) * (1 - Math.exp(-dt * 3));
+}
+
+// The camera for this frame, between the last two ticks: `proj` takes a
+// point in the world (z up) to the screen, with its scale and its distance.
+function rideCamera(vw, vh) {
+  const R = BL.ride, al = RALPHA;
+  if (R.camA === undefined) rideCamTick(R, 0);
+  const s = Math.abs(R.s - R.ps) < 200 ? R.ps + (R.s - R.ps) * al : R.s;
+  const a = R.pa + wrapAngle(R.camA - R.pa) * al, z = R.pz + (R.camZ - R.pz) * al;
+  const foc = rideFocus(s);
+  const rx = Math.cos(a), ry = Math.sin(a), fx = ry, fy = -rx;
+  const cp = Math.cos(B_RCAM.pitch), sp = Math.sin(B_RCAM.pitch), Dp = B_RCAM.dist * cp, H = z + B_RCAM.dist * sp;
+  const F = B_RCAM.scale * B_RCAM.dist, cx0 = vw / 2, cy0 = Math.round(vh * 0.6);
+  const Cx = foc.x - fx * Dp, Cy = foc.y - fy * Dp;
+  const P = { s, foc, rx, ry, fx, fy, cp, sp, Dp, H, F, cx0, cy0, Cx, Cy, vw, vh };
+  P.proj = (x, y, zz = 0) => {
+    const dx = x - Cx, dy = y - Cy, u = dx * fx + dy * fy, dz = zz - H;
+    const zc = u * cp - dz * sp;
+    if (zc < 8) return null;
+    const sc = F / zc;
+    return { X: cx0 + (dx * rx + dy * ry) * sc, Y: cy0 - (u * sp + dz * cp) * sc, sc, u };
+  };
+  // The ground row at screen row Y: how far ahead it is.
+  P.rowU = Y => { const t = (cy0 - Y) / F, den = sp - t * cp; return den > 0 ? H * (cp + t * sp) / den : Infinity; };
+  P.uRow = u => cy0 - F * (u * sp - H * cp) / (u * cp + H * sp);
+  return P;
+}
+
+// The ground: the city's own tiles, turned to face the camera on a scratch
+// canvas, then laid back in perspective one screen row at a time. The turned
+// ground is kept, with room to spare, and only redrawn when the camera turns
+// or runs off its edge.
+function drawRideGround(P) {
+  const { vw, vh, F, cx0, cp, sp, H, rx, ry, fx, fy, Cx, Cy } = P;
+  const U0 = Math.max(20, P.rowU(vh) - 4), U1 = P.Dp + B_RCAM.far;
+  const A = Math.ceil(Math.max(cx0, vw - cx0) * (U1 * cp + H * sp) / F) + 4;
+  let K = BL.rideGK;
+  const turned = !K || Math.abs(K.rx - rx) > 1e-4 || Math.abs(K.ry - ry) > 1e-4;
+  const ca = K ? (Cx - K.Ox) * rx + (Cy - K.Oy) * ry : 0, cu = K ? (Cx - K.Ox) * fx + (Cy - K.Oy) * fy : 0;
+  if (turned || ca - A < K.A0 || ca + A > K.A1 || cu + U0 < K.U0 || cu + U1 > K.U1) {
+    // While turning it's redrawn every frame anyway, so keep it tight then.
+    const M = turned && K && BL.rideGTurn ? 24 : 360;
+    K = BL.rideGK = { rx, ry, Ox: Cx, Oy: Cy, A0: -A - M, A1: A + M, U0: U0 - M, U1: U1 + M };
+    BL.rideGTurn = turned;
+    const gw = K.A1 - K.A0, gh = Math.ceil(K.U1 - K.U0);
+    let G = BL.rideG;
+    if (!G || G.width < gw || G.height < gh) { G = BL.rideG = document.createElement('canvas'); G.width = Math.max(gw, G ? G.width : 0); G.height = Math.max(gh, G ? G.height : 0); }
+    const g = G.getContext('2d');
+    g.imageSmoothingEnabled = false;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.fillStyle = '#5d8a3e'; g.fillRect(0, 0, gw, gh);
+    g.setTransform(rx, fx, ry, fy, -K.A0 - (Cx * rx + Cy * ry), -K.U0 - (Cx * fx + Cy * fy));
+    const xs = [], ys = [];
+    for (const a of [K.A0, K.A1]) for (const u of [K.U0, K.U1]) { xs.push(Cx + rx * a + fx * u); ys.push(Cy + ry * a + fy * u); }
+    const x0 = Math.min(...xs), y0 = Math.min(...ys), x1 = Math.max(...xs), y1 = Math.max(...ys);
+    for (let ty = Math.max(0, Math.floor(y0 / TILE)); ty <= Math.min(Math.floor((BH - 1) / TILE), Math.floor(y1 / TILE)); ty++) {
+      for (let tx = Math.max(0, Math.floor(x0 / TILE)); tx <= Math.min(Math.floor((BW - 1) / TILE), Math.floor(x1 / TILE)); tx++) g.drawImage(groundTile(tx, ty), tx * TILE, ty * TILE);
+    }
+  } else BL.rideGTurn = false;
+  const G = BL.rideG, oa = (Cx - K.Ox) * rx + (Cy - K.Oy) * ry, ou = (Cx - K.Ox) * fx + (Cy - K.Oy) * fy;
+  // Haze where the ground runs out, then the ground itself, row by row.
+  const yFar = Math.max(0, Math.ceil(P.uRow(U1)));
+  const day = bDaylight(), haze = lerpRgb([196, 212, 218], [70, 66, 96], day.dark / 0.7);
+  ctx.fillStyle = rgbStr(haze); ctx.fillRect(0, 0, vw, yFar + 1);
+  ctx.imageSmoothingEnabled = false;
+  for (let Y = yFar; Y < vh; Y++) {
+    const u = P.rowU(Y + 0.5);
+    if (u > U1 || u < U0) continue;
+    const k = (u * cp + H * sp) / F;
+    ctx.drawImage(G, oa - cx0 * k - K.A0, Math.floor(ou + u - K.U0), vw * k, 1, 0, Y, vw, 1);
+  }
+  // The part of the city in view, for culling.
+  const xs = [], ys = [];
+  for (const a of [-A, A]) for (const u of [U0, U1]) { xs.push(Cx + rx * a + fx * u); ys.push(Cy + ry * a + fy * u); }
+  return { bb: { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) }, haze };
+}
+
+// A box standing in the world, seen from the ride camera: centre (x, y) on
+// the plan, heading (hx, hy), half length l and half width w, from height z0
+// to z1. Faces turned away are skipped. Returns the near long side as a
+// function (u along, v up, both 0..1) for painting details onto it.
+function rideBox(P, x, y, hx, hy, l, w, z0, z1, col) {
+  const nx = -hy, ny = hx;
+  const c = [[l, w], [l, -w], [-l, -w], [-l, w]].map(([a, b]) => [x + hx * a + nx * b, y + hy * a + ny * b]);
+  const lo = c.map(p => P.proj(p[0], p[1], z0)), hi = c.map(p => P.proj(p[0], p[1], z1));
+  if (lo.some(p => !p) || hi.some(p => !p)) return null;
+  const camX = P.Cx, camY = P.Cy;
+  let side = null;
+  for (let i = 0; i < 4; i++) {
+    const j = (i + 1) % 4, mx = (c[i][0] + c[j][0]) / 2, my = (c[i][1] + c[j][1]) / 2;
+    const ox = mx - x, oy = my - y;
+    if (ox * (camX - mx) + oy * (camY - my) <= 0) continue;
+    const q = [lo[i], lo[j], hi[j], hi[i]].map(p => [p.X, p.Y]);
+    // Lit from the north-west, like the rest of the city.
+    const lit = (ox * -0.6 + oy * -0.8) / (Math.hypot(ox, oy) || 1);
+    polyFill(ctx, q, shade(i % 2 ? col.side : col.end || col.side, -0.16 + lit * 0.12));
+    if (i % 2) {
+      // From the rear corner to the front one, bottom to top.
+      const [r0, f0, f1, r1] = i === 1 ? [lo[j], lo[i], hi[i], hi[j]] : [lo[i], lo[j], hi[j], hi[i]];
+      side = (u, v) => [r0.X + (f0.X - r0.X) * u + ((r1.X + (f1.X - r1.X) * u) - (r0.X + (f0.X - r0.X) * u)) * v,
+        r0.Y + (f0.Y - r0.Y) * u + ((r1.Y + (f1.Y - r1.Y) * u) - (r0.Y + (f0.Y - r0.Y) * u)) * v];
+    }
+    if (col.edge) for (let e = 0; e < 4; e++) pixLine(ctx, q[e], q[(e + 1) % 4], col.edge);
+  }
+  const top = hi.map(p => [p.X, p.Y]);
+  polyFill(ctx, top, col.top);
+  if (col.edge) for (let e = 0; e < 4; e++) pixLine(ctx, top[e], top[(e + 1) % 4], col.edge);
+  return { side, top: (u, v) => { const a = (u * 2 - 1) * l, b = (v * 2 - 1) * w, p = P.proj(x + hx * a + nx * b, y + hy * a + ny * b, z1); return p ? [p.X, p.Y] : [0, 0]; } };
+}
+const rideQuad = (fn, u0, v0, u1, v1, col) => polyFill(ctx, [fn(u0, v0), fn(u1, v0), fn(u1, v1), fn(u0, v1)], col);
+
+// One metro coach between its two bogies, so on a bend each coach follows
+// its own chord of the curve, like the real thing.
+function rideCoach(P, L, c, dir, z0, kitten) {
+  const half = B_RCAM.coach / 2 - 1;
+  const pf = linePoint(L, c + dir * (half - 4)), pr = linePoint(L, c - dir * (half - 4));
+  const len = Math.hypot(pf.x - pr.x, pf.y - pr.y) || 1, hx = (pf.x - pr.x) / len, hy = (pf.y - pr.y) / len;
+  // Trains keep to the track on their right.
+  const x = (pf.x + pr.x) / 2 - hy * 4, y = (pf.y + pr.y) / 2 + hx * 4;
+  return {
+    x, y, under: pf.under || pr.under,
+    draw: () => {
+      const b = rideBox(P, x, y, hx, hy, half, 3.8, z0, z0 + 9, { top: '#d9d6de', side: '#eceaf0', end: '#cfccd6', edge: '#2b2220' });
+      if (!b || !b.side) return;
+      const S = b.side;
+      rideQuad(S, 0.02, 0.12, 0.98, 0.3, L.col);
+      rideQuad(S, 0.02, 0.86, 0.98, 0.94, L.col);
+      for (let u = 0.07; u < 0.9; u += 0.11) rideQuad(S, u, 0.45, u + 0.07, 0.75, '#3a4a58');
+      for (const u of [0.3, 0.68]) rideQuad(S, u, 0.08, u + 0.06, 0.8, '#9a9aa6');
+      if (kitten) {
+        const [X, Y] = S(0.5, 0.45), sc = Math.hypot(S(1, 0)[0] - S(0, 0)[0], S(1, 0)[1] - S(0, 0)[1]) / (B_RCAM.coach - 2);
+        ctx.drawImage(SPR.kitten.idle.img[0], 0, 0, 24, 14, Math.round(X - 6 * sc), Math.round(Y - 6 * sc), Math.round(12 * sc), Math.round(7 * sc));
+      }
+    },
+  };
+}
+
+function drawRideView(vw, vh) {
+  const k = BL, R = k.ride, seg = R.segs[R.seg];
+  const P = rideCamera(vw, vh);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const { bb, haze } = drawRideGround(P);
+  k.cam = { x: bb.x0, y: bb.y0, w: bb.x1 - bb.x0, h: bb.y1 - bb.y0, zoom: canvas.width / W };
+  k.rideProj = P.proj;
+  if (R.kind === 'metro') {
+    // The line under the street, dashed, and the train glowing through.
+    const L = B_LINES[seg.line];
+    for (const g of L.segs) {
+      if (!g.under) continue;
+      for (let d = 0; d < g.len; d += 16) {
+        const a = P.proj(g.x0 + (g.x1 - g.x0) * d / g.len, g.y0 + (g.y1 - g.y0) * d / g.len), b = P.proj(g.x0 + (g.x1 - g.x0) * Math.min(g.len, d + 9) / g.len, g.y0 + (g.y1 - g.y0) * Math.min(g.len, d + 9) / g.len);
+        if (a && b && a.u > 30) { pixLine(ctx, [a.X, a.Y], [b.X, b.Y], L.col); pixLine(ctx, [a.X, a.Y + 1], [b.X, b.Y + 1], L.col); }
+      }
+    }
+  }
+  const inBB = (x, y, pad = 0) => x > bb.x0 - pad && x < bb.x1 + pad && y > bb.y0 - pad && y < bb.y1 + pad;
+  const list = [];
+  const at = (x, y, z, pad) => {
+    const p = P.proj(x, y, z);
+    return p && p.u > 30 && p.X > -pad * p.sc && p.X < vw + pad * p.sc && p.Y > -10 && p.Y < vh + pad * p.sc ? p : null;
+  };
+  // Things standing in the world, drawn at their spot and scaled for distance.
+  const stand = (x, y, pad, fn) => { const p = at(x, y, 0, pad); if (p) list.push({ u: p.u, p, x, y, fn }); };
+  for (let by = Math.floor(bb.y0 / BUCKET); by <= Math.floor((bb.y1 + BL.maxH) / BUCKET); by++) {
+    for (let bx = Math.floor((bb.x0 - BL.maxW) / BUCKET); bx <= Math.floor((bb.x1 + BL.maxW) / BUCKET); bx++) {
+      for (const s of BL.buckets.get(`${bx},${by}`) || []) {
+        const ax = s.x + s.w / 2, ay = s.base + 1;
+        const p = at(ax, ay, 0, s.w);
+        if (p && p.Y - s.h * p.sc < vh) list.push({ u: p.u, p, x: ax, y: ay, img: s });
+      }
+    }
+  }
+  for (const v of k.vehicles) {
+    const q = laneXY(v.lane, v.p), g = v.lane.seg;
+    if (!inBB(q.x, q.y, 40)) continue;
+    stand(q.x, q.y, 30, () => {
+      const a = P.proj(q.x, q.y), b = P.proj(q.x + g.ux * v.lane.sd * 10, q.y + g.uy * v.lane.sd * 10);
+      const hl = Math.hypot(b.X - a.X, b.Y - a.Y) || 1;
+      drawVehicleTop(v, q.x, q.y, (b.X - a.X) / hl, (b.Y - a.Y) / hl);
+    });
+  }
+  for (const n of k.npcs) if (inBB(n.x, n.y)) stand(n.x, n.y, 10, () => drawPerson(n.x, n.y, n));
+  for (const c of k.cows) if (inBB(c.x, c.y)) stand(c.x, c.y, 20, () => drawCow(c));
+  for (const dg of k.dogs) if (inBB(dg.x, dg.y)) stand(dg.x, dg.y, 10, () => drawDog(dg));
+  if (inBB(B_TRACK.x, B_TRACK.y, 300)) {
+    for (const h of k.horses) {
+      const x = B_TRACK.x + Math.cos(h.a) * (B_TRACK.rx - 6 - h.lane * 5), y = B_TRACK.y + Math.sin(h.a) * (B_TRACK.ry - 6 - h.lane * 4);
+      const hx = -Math.sin(h.a) * B_TRACK.rx, hy = Math.cos(h.a) * B_TRACK.ry;
+      stand(x, y, 20, () => drawHorse(x, y, h, hx * P.rx + hy * P.ry, -(hx * P.fx + hy * P.fy)));
+    }
+  }
+  if (k.train.state !== 'away' && Math.abs(P.rx) > 0.7) stand(k.train.x, RAIL_Y + 6, 200, () => drawRailTrain(k.train.x, RAIL_Y + 6, k.train.dir * Math.sign(P.rx), k.train.x));
+  for (const f of k.fishes) if (!f.taken && inBB(f.x, f.y)) stand(f.x, f.y, 10, () => ctx.drawImage(SPR.fish.img[0], Math.round(f.x - 4), Math.round(f.y - 9)));
+  for (const h of B_HIDDEN) if (inBB(h.x, h.y)) stand(h.x, h.y, 10, () => drawHiddenCat(h));
+
+  // Viaducts in pieces, with their pillars, and the stations on them.
+  const deck = { top: '#c9c2b6', side: '#8a857a', edge: '#4a4740' };
+  for (const L of Object.values(B_LINES)) {
+    for (const g of L.segs) {
+      if (g.under || !inBB((g.x0 + g.x1) / 2, (g.y0 + g.y1) / 2, g.len / 2 + 40)) continue;
+      const hx = (g.x1 - g.x0) / g.len, hy = (g.y1 - g.y0) / g.len, n = Math.ceil(g.len / 30), step = g.len / n;
+      for (let i = 0; i < n; i++) {
+        const x = g.x0 + hx * (i + 0.5) * step, y = g.y0 + hy * (i + 0.5) * step, p = at(x, y, DECK, 40);
+        if (!p) continue;
+        list.push({ u: p.u, fn3: () => {
+          const b = rideBox(P, x, y, hx, hy, step / 2 + 0.5, 8, DECK - 5, DECK, deck);
+          if (!b) return;
+          for (const v of [0.22, 0.4, 0.6, 0.78]) { const a0 = b.top(0, v), a1 = b.top(1, v); pixLine(ctx, a0, a1, '#8a857a'); }
+        } });
+      }
+      for (let d = 30; d < g.len; d += 60) {
+        const x = g.x0 + hx * d, y = g.y0 + hy * d, p = at(x, y, 0, 20);
+        if (p) list.push({ u: p.u + 0.5, fn3: () => rideBox(P, x, y, hx, hy, 3, 3, 0, DECK - 5, { top: '#a8a294', side: '#8f8a80', end: '#7a766c' }) });
+      }
+    }
+    for (const st of L.stations) {
+      const sp = linePoint(L, st.s);
+      if (sp.under || !inBB(sp.x, sp.y, 60)) continue;
+      const a = linePoint(L, st.s - 10), b = linePoint(L, st.s + 10), len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+      const hx = (b.x - a.x) / len, hy = (b.y - a.y) / len, p = at(sp.x, sp.y, DECK, 60);
+      if (!p) continue;
+      list.push({ u: p.u - 1, fn3: () => {
+        rideBox(P, sp.x, sp.y, hx, hy, 46, 14, DECK - 7, DECK + 1, { top: '#d9d2c4', side: '#4a4740', edge: '#3a3530' });
+        for (const s of [-1, 1]) for (const d of [-40, -13, 13, 40]) rideBox(P, sp.x + hx * d - hy * 12 * s, sp.y + hy * d + hx * 12 * s, hx, hy, 1, 1, DECK + 1, DECK + 15, { top: '#3a3530', side: '#3a3530' });
+      } });
+      // The canopy goes see-through over your own train, so you can see it at the platform.
+      const mineHere = R.kind === 'metro' && Math.hypot(P.foc.x - sp.x, P.foc.y - sp.y) < 90;
+      list.push({ u: p.u - 16, alpha: mineHere ? 0.45 : 1, fn3: () => {
+        const r = rideBox(P, sp.x, sp.y, hx, hy, 48, 14, DECK + 15, DECK + 18, { top: '#f4f1ea', side: L.col, edge: '#3a3530' });
+        if (r) { const a0 = r.top(0, 0.5), a1 = r.top(1, 0.5); pixLine(ctx, a0, a1, L.light); }
+      } });
+    }
+  }
+
+  // Trains: the ones going about their day, and yours.
+  const ghosts = [];
+  const coaches = (line, s, dir, mine) => {
+    const L = B_LINES[line];
+    for (let i = -1; i <= 1; i++) {
+      const c = rideCoach(P, L, s + dir * i * B_RCAM.coach, dir, DECK + 1, mine && i === 0);
+      if (c.under) { if (mine) ghosts.push(rideCoach(P, L, s + dir * i * B_RCAM.coach, dir, -14, false)); continue; }
+      const p = at(c.x, c.y, DECK, 40);
+      if (p) list.push({ u: p.u, fn3: c.draw });
+    }
+  };
+  for (const tr of k.trains) if (inBB(linePoint(B_LINES[tr.line], tr.s).x, linePoint(B_LINES[tr.line], tr.s).y, 120) && !(R.kind === 'metro' && tr.line === seg.line && Math.abs(tr.s - P.s) < 130)) coaches(tr.line, tr.s, tr.dir, false);
+  let mark = null;
   if (R.kind === 'auto') {
-    drawVehicleTop({ type: 'auto', col: null }, Math.round(f.x), Math.round(f.y), f.hx, f.hy);
-    return { x: f.x, y: f.y - 18 };
+    const f = P.foc, bump = R.speed > 5 ? Math.abs(Math.sin(BL.t * 15)) * 0.8 : 0;
+    stand(f.x, f.y, 30, () => {
+      const a = P.proj(f.x, f.y), b = P.proj(f.x + f.hx * 10, f.y + f.hy * 10), hl = Math.hypot(b.X - a.X, b.Y - a.Y) || 1;
+      drawVehicleTop({ type: 'auto', col: null }, f.x, f.y - bump, (b.X - a.X) / hl, (b.Y - a.Y) / hl);
+    });
+    const m = P.proj(f.x, f.y, 26);
+    if (m) mark = m;
+  } else {
+    coaches(seg.line, P.s, P.foc.dir, true);
+    const m = P.proj(P.foc.x, P.foc.y, P.foc.under ? 12 : DECK + 30);
+    if (m) mark = m;
   }
-  if (f.under) {
-    // Underground: a ring on the street above, pulsing where the train is.
-    const r = 10 + Math.sin(BL.t * 6) * 2;
-    ctx.fillStyle = B_LINES[seg.line].col;
-    for (let a = 0; a < Math.PI * 2; a += 0.08) ctx.fillRect(Math.round(f.x + Math.cos(a) * r), Math.round(f.y + Math.sin(a) * r * 0.6), 2, 2);
-    return { x: f.x, y: f.y - 10 };
+
+  // Anything between the camera and your ride that would hide it goes see-through.
+  const me = P.proj(P.foc.x, P.foc.y, R.kind === 'auto' || P.foc.under ? 0 : DECK);
+  const meU = me ? me.u : P.Dp;
+  const veil = me && { x0: me.X - 75 * me.sc, x1: me.X + 75 * me.sc, y0: me.Y - 34 * me.sc, y1: me.Y + 6 * me.sc };
+  const hides = (it, w, h) => veil && it.u < meU - 10 && it.p.X + w / 2 * it.p.sc > veil.x0 && it.p.X - w / 2 * it.p.sc < veil.x1 && it.p.Y > veil.y0 && it.p.Y - h * it.p.sc < veil.y1;
+  // Far to near, with a veil of haze laid over everything beyond each step.
+  for (const d of [500, 800, 1100, 1350]) list.push({ u: P.Dp + d, haze: true });
+  list.sort((a, b) => b.u - a.u);
+  const hazeCol = `rgba(${haze[0]},${haze[1]},${haze[2]},0.16)`;
+  for (const it of list) {
+    if (it.haze) {
+      const y = Math.round(P.uRow(it.u));
+      if (y > 0) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = hazeCol; ctx.fillRect(0, 0, vw, Math.min(vh, y)); }
+      continue;
+    }
+    if (it.fn3) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = it.alpha || 1; it.fn3(); ctx.globalAlpha = 1; continue; }
+    const sc = it.p.sc;
+    ctx.setTransform(sc, 0, 0, sc, it.p.X - it.x * sc, it.p.Y - it.y * sc);
+    ctx.imageSmoothingEnabled = sc < 0.85;
+    if (it.img) {
+      ctx.globalAlpha = hides(it, it.img.w, it.img.h) ? 0.3 : 1;
+      ctx.drawImage(it.img.img, it.img.x, it.img.y);
+      ctx.globalAlpha = 1;
+    } else it.fn();
   }
-  drawMetroTrain({ line: seg.line, s: R.s, dir: f.dir });
-  return { x: f.x, y: f.y - DECK - 22 };
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  if (ghosts.length) {
+    ctx.globalAlpha = 0.55 + Math.sin(BL.t * 5) * 0.15;
+    for (const c of ghosts) c.draw();
+    ctx.globalAlpha = 1;
+  }
+  return mark;
 }
 
 // ---------------------------------------------------------------------------
@@ -2603,7 +3099,8 @@ function rideUI() {
   const stopsLeft = left > 0 ? `${left} stop${left === 1 ? '' : 's'} to go` : 'Arriving';
   const z = canvas.width / W;
   // From the air: landmarks and stations named where they are, and a marker over your ride.
-  const c = BL.cam, zz = c.zoom, sx = wx => (wx - c.x) / zz, sy = wy => (wy - c.y) / zz;
+  const zz = canvas.width / W, proj = BL.rideProj;
+  const toUI = (x, y, h) => { const p = proj && proj(x, y, h); return p && p.u > 30 ? { x: p.X / zz, y: p.Y / zz, sc: p.sc } : null; };
   const placed = [];
   const label = (text, x, y, size, color) => {
     const w = uwidth(text, size);
@@ -2613,12 +3110,19 @@ function rideUI() {
     cut(text, x, y, { size, color, align: 'center' });
   };
   if (R.mark) {
-    const mx = sx(R.mark.x), my = sy(R.mark.y) + Math.sin(BL.t * 5) * 1.5;
+    const mx = R.mark.X / zz, my = R.mark.Y / zz + Math.sin(BL.t * 5) * 1.5;
     drawArrow(mx, my - 4, Math.PI / 2);
     label(rideFocus().under ? 'You (underground)' : 'You', mx, my - 17, 4.6, '#ffd25e');
   }
-  for (const st of Object.values(B_STATIONS)) if (bOnScreen(st.x, st.y, 0)) label(st.name, sx(st.x), sy(st.y) + 3, 4, '#d8d0c2');
-  for (const pc of B_POSTCARDS) if (!pc.ride && bOnScreen(pc.x, pc.y, 0)) label(pc.name, sx(pc.x), sy(pc.y) - 14, 4.6, '#ffffff');
+  // Stations named over their platforms, landmarks over themselves; far ones smaller.
+  for (const st of Object.values(B_STATIONS)) {
+    const p = toUI(st.x, st.y, st.under ? 4 : DECK + 22);
+    if (p) label(st.name, p.x, p.y, clamp(3.4 + p.sc * 0.6, 3.6, 4.6), '#d8d0c2');
+  }
+  for (const pc of B_POSTCARDS) {
+    const p = !pc.ride && toUI(pc.x, pc.y, 40);
+    if (p) label(pc.name, p.x, p.y, clamp(3.6 + p.sc * 0.8, 3.8, 5), '#ffffff');
+  }
   band(0, 14, 0.55);
   urect(0, 13, W, 1, col);
   cut(`${rideName}  >  ${auto ? seg.toName : B_STATIONS[R.to].name}`, 6, 3.5, { size: 6, color: light });

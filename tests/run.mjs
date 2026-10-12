@@ -236,7 +236,7 @@ async function suiteCity(browser) {
   const rides = await page.evaluate(() => {
     const problems = [];
     let n = 0;
-    const runRide = () => { for (let i = 0; i < 60 * 120 && BL.ride; i++) { input.held.dash = true; cityTick(1 / 60); if (i % 60 === 0) { cityDraw(); uiClear(); cityUI(); } consumeInput(); } input.held.dash = false; };
+    const runRide = () => { for (let i = 0; i < 60 * 120 && BL.ride; i++) { input.held.dash = true; cityTick(1 / 60); if (i % 240 === 0) { cityDraw(); uiClear(); cityUI(); } consumeInput(); } input.held.dash = false; };
     for (const from of Object.values(B_STATIONS)) {
       B_COLS.forEach((lid, col) => B_LINES[lid].stations.forEach((to, row) => {
         if (to.id === from.id) return;
@@ -271,6 +271,46 @@ async function suiteCity(browser) {
     return { problems, n, stamps: SAVE.city.stamps };
   });
   report('city', 'every metro and auto ride arrives', rides.problems, `${rides.n} rides`);
+
+  // Rides seen from beside the line: the camera turns smoothly through bends,
+  // frames draw in good time, and autos keep to the roads.
+  const sideView = await page.evaluate(() => {
+    const problems = [];
+    let slowest = 0, maxTurn = 0, frames = 0, samples = 0, offRoad = 0;
+    for (const lid of B_COLS) {
+      const st = B_LINES[lid].stations, from = B_STATIONS[st[0].id];
+      BL.ride = null; BL.mapOpen = false; BL.x = from.x; BL.y = from.y;
+      openRidePicker(from);
+      BL.ride.sel = { col: B_COLS.indexOf(lid), row: st.length - 1 };
+      confirmRide();
+      for (let i = 0; i < 60 * 300 && BL.ride; i++) {
+        input.held.dash = true;
+        cityTick(1 / 60); consumeInput();
+        const R = BL.ride;
+        if (R && R.pa !== undefined) { const d = Math.abs(wrapAngle(R.camA - R.pa)); if (d < 2) maxTurn = Math.max(maxTurn, d); }
+        if (i % 45 === 0 && BL.ride) { const a = performance.now(); cityDraw(); uiClear(); cityUI(); if (i) slowest = Math.max(slowest, performance.now() - a); frames++; }
+      }
+      input.held.dash = false;
+      if (BL.ride) problems.push(`${B_LINES[lid].name} end to end never arrived`);
+    }
+    if (maxTurn > 0.08) problems.push(`camera swung ${maxTurn.toFixed(3)} rad in one tick`);
+    for (const a of B_AUTO_STANDS) {
+      const pc = B_POSTCARDS.filter(p => !p.ride).sort((p, q) => Math.hypot(q.x - a.x, q.y - a.y) - Math.hypot(p.x - a.x, p.y - a.y))[0];
+      BL.ride = null; BL.x = a.x; BL.y = a.y; BL.waypoint = { id: pc.id, name: pc.name, x: pc.x, y: pc.y };
+      startAutoRide(a);
+      if (!BL.ride) continue;
+      const T = BL.ride.segs[0].track;
+      let off = 0, n = 0;
+      for (let s = 80; s < T.len - 80; s += 20) { const q = linePoint(T, s); n++; if (!bRoadAt(q.x, q.y, 14)) off++; }
+      samples += n; offRoad += off;
+      if (off > n * 0.05) problems.push(`auto from ${a.name} to ${pc.name} leaves the road for ${off} of ${n} stretches`);
+      const R = BL.ride;
+      cityDraw(); R.t = R.segs[0].dur * 0.5; cityTick(1 / 60); cityDraw();
+      BL.ride = null;
+    }
+    return { problems, slowest, maxTurn, frames, samples, offRoad };
+  });
+  report('city', 'rides seen from the side', sideView.problems, `${sideView.frames} frames, slowest ${sideView.slowest.toFixed(1)} ms, max turn ${sideView.maxTurn.toFixed(3)} rad/tick, autos on road ${sideView.samples - sideView.offRoad}/${sideView.samples}`);
 
   // Traffic: cars must never jump or vanish where the camera can see them.
   const traffic = await page.evaluate(() => {
@@ -440,12 +480,13 @@ async function suiteShots(browser) {
     { name: 'map-zoomed', pc: 'cubbon', extra: 'map-zoom' },
     { name: 'metro-picker', st: 'majestic', extra: 'pick' },
     { name: 'metro-ride', st: 'mgroad', extra: 'ride', to: ['purple', 'indiranagar'] },
-    { name: 'green-aerial', st: 'rajajinagar', extra: 'ride', rideView: 'skyline', to: ['green', 'yeshwanthpur'], ticks: 150 },
-    { name: 'purple-west-window', st: 'magadi', extra: 'ride', to: ['purple', 'mysoreroad'] },
+    { name: 'green-line', st: 'rajajinagar', extra: 'ride', to: ['green', 'yeshwanthpur'], ticks: 150 },
+    { name: 'purple-west', st: 'magadi', extra: 'ride', to: ['purple', 'mysoreroad'] },
     { name: 'metro-underground', st: 'majestic', extra: 'ride', to: ['purple', 'vidhana'] },
     { name: 'yellow-line', st: 'rvroad', extra: 'ride', to: ['yellow', 'silkboard'] },
     { name: 'stadium-from-metro', st: 'mgroad', extra: 'ride', to: ['purple', 'trinity'], ticks: 20 },
     { name: 'auto-ride', pc: 'brigade', extra: 'auto' },
+    { name: 'metro-bend', st: 'hosahalli', extra: 'ride', to: ['purple', 'vijayanagar'], ticks: 115 },
     { name: 'title' },
   ];
   const { page, errors } = await openGame(browser);
