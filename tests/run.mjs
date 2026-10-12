@@ -166,7 +166,6 @@ async function suiteCity(browser) {
       const pr = bPicRect(a), above = { x: pr.x, y: pr.y, w: pr.w, h: r.y - pr.y };
       if (above.h > 0 && !a.island) for (const g of B_RSEGS) if (rectSegDist(above, g) < g.hw - 4) { out.hidesRoad.push(`${named(a)} hides ${g.road.name}`); break; }
       for (const l of B_LAKES) if (inEll(r.x + r.w / 2, r.y + r.h / 2, l, l.rx + r.w / 2, l.ry + r.h / 2)) out.water.push(`${named(a)} is in ${l.name}`);
-      if (hit(r, B_RIVER)) out.water.push(`${named(a)} is in the Sarayu`);
       if (r.x < 0 || r.y < 0 || r.x + r.w > BW || r.y + r.h > BH) out.misc.push(`${named(a)} is outside the map`);
       // A building south of another must not cover its front with its picture.
       for (const b of around(a)) if (b !== a && b.y > a.y && b.img.height > 30 && hit(bFrontRect(a), bPicRect(b))) out.overlap.push(`${named(b)} hides the front of ${named(a)}`);
@@ -194,7 +193,6 @@ async function suiteCity(browser) {
     };
     for (const pc of B_POSTCARDS) if (!pc.ride && !reach(pc.x, pc.y, pc.r * 0.7)) out.unreachable.push(`postcard "${pc.name}" at ${pc.x},${pc.y}`);
     for (const s of Object.values(B_STATIONS)) if (!reach(s.x, s.y)) out.unreachable.push(`metro exit ${s.name} at ${s.x},${s.y}`);
-    for (const s of B_STEAM_STOPS) if (!reach(s.exit.x, s.exit.y)) out.unreachable.push(`steam stop ${s.name}`);
     for (const n of B_NPCS) if (!reach(n.x, n.y, 18)) out.unreachable.push(`${n.name} at ${n.x},${n.y}`);
     for (const c of BL.cows) if (!reach(c.x, c.y, 18)) out.unreachable.push(`cow at ${c.x},${c.y}`);
     for (const h of B_HIDDEN) if (!reach(h.x, h.y, 14)) out.unreachable.push(`hidden cat "${h.name}" at ${h.x},${h.y}`);
@@ -234,11 +232,11 @@ async function suiteCity(browser) {
   report('city', 'postcard facts fit the card', audit.facts);
   report('city', 'misc layout checks', audit.misc, `${audit.statics} props, ${audit.trees} trees, ${audit.fish} fish, built in ${buildMs} ms`);
 
-  // Rides: every metro pair, both ways on the steam train.
+  // Rides: every pair of metro stations (holding dash to hurry the train), and autos.
   const rides = await page.evaluate(() => {
     const problems = [];
     let n = 0;
-    const runRide = () => { for (let i = 0; i < 60 * 60 && BL.ride; i++) { cityTick(1 / 60); if (i % 30 === 0) { cityDraw(); uiClear(); cityUI(); } consumeInput(); } };
+    const runRide = () => { for (let i = 0; i < 60 * 120 && BL.ride; i++) { input.held.dash = true; cityTick(1 / 60); if (i % 60 === 0) { cityDraw(); uiClear(); cityUI(); } consumeInput(); } input.held.dash = false; };
     for (const from of Object.values(B_STATIONS)) {
       B_COLS.forEach((lid, col) => B_LINES[lid].stations.forEach((to, row) => {
         if (to.id === from.id) return;
@@ -256,17 +254,6 @@ async function suiteCity(browser) {
         n++;
       }));
     }
-    for (let i = 0; i < 2; i++) {
-      const s = B_STEAM_STOPS[i];
-      BL.ride = null; BL.x = s.exit.x; BL.y = s.exit.y;
-      cityTick(1 / 60); consumeInput();
-      if (!BL.near || BL.near.kind !== 'steam') { problems.push(`no Malgudi Express prompt at ${s.name}`); continue; }
-      input.pressed.jump = true; cityTick(1 / 60); consumeInput();
-      runRide();
-      const to = B_STEAM_STOPS[1 - i].exit;
-      if (Math.hypot(BL.x - to.x, BL.y - to.y) > 8) problems.push(`steam ride from ${s.name} ended at ${BL.x | 0},${BL.y | 0}`);
-      n++;
-    }
     // Autos: from every stand to the postcard farthest from it.
     for (const a of B_AUTO_STANDS) {
       const pc = B_POSTCARDS.filter(p => !p.ride).sort((p, q) => Math.hypot(q.x - a.x, q.y - a.y) - Math.hypot(p.x - a.x, p.y - a.y))[0];
@@ -283,7 +270,7 @@ async function suiteCity(browser) {
     }
     return { problems, n, stamps: SAVE.city.stamps };
   });
-  report('city', 'every metro, steam and auto ride arrives', rides.problems, `${rides.n} rides`);
+  report('city', 'every metro and auto ride arrives', rides.problems, `${rides.n} rides`);
 
   // Walk a bot to every postcard and check it gets stamped; render all views as it goes.
   const walk = await page.evaluate(quick => {
@@ -397,6 +384,14 @@ async function suiteShots(browser) {
     { name: 'indiranagar', pc: 'indiranagar' },
     { name: 'malleswaram', pc: 'malleswaram' },
     { name: 'iskcon', pc: 'iskcon' },
+    { name: 'brigade-gateway', pc: 'orion' },
+    { name: 'yeshwanthpur', st: 'yeshwanthpur' },
+    { name: 'vijayanagar', st: 'vijayanagar' },
+    { name: 'gali-anjaneya', pc: 'anjaneya' },
+    { name: 'chinnaswamy', pc: 'stadium' },
+    { name: 'ub-city-kingfisher', pc: 'kingfisher', dy: -30 },
+    { name: 'hard-rock-cafe', pc: 'hardrock' },
+    { name: 'ksr-train', pc: 'ksr', dy: -260, extra: 'train' },
     { name: 'kr-market-fort', pc: 'krmarket' },
     { name: 'basavanagudi', pc: 'bulltemple' },
     { name: 'gavi-gangadhareshwara', pc: 'gavi' },
@@ -404,22 +399,23 @@ async function suiteShots(browser) {
     { name: 'jayanagar', pc: 'jayanagar' },
     { name: 'koramangala', pc: 'koramangala' },
     { name: 'silk-board', pc: 'silkboard' },
-    { name: 'malgudi-station', pc: 'malgudi' },
-    { name: 'malgudi-swami', pc: 'swami' },
     { name: 'drone', pc: 'cubbon', view: 'drone' },
     { name: 'vidhana-full', pc: 'vidhana', view: 'drone', dy: 110 },
-    { name: 'sketch', pc: 'swami', view: 'sketch' },
+    { name: 'sketch', pc: 'malleswaram', view: 'sketch' },
+    { name: 'palace-drone', pc: 'palace', view: 'drone' },
     { name: 'night', pc: 'brigade', extra: 'night' },
     { name: 'district-title', pc: 'malleswaram', extra: 'title' },
     { name: 'map', pc: 'vidhana', extra: 'map' },
     { name: 'map-zoomed', pc: 'cubbon', extra: 'map-zoom' },
     { name: 'metro-picker', st: 'majestic', extra: 'pick' },
     { name: 'metro-ride', st: 'mgroad', extra: 'ride', to: ['purple', 'indiranagar'] },
-    { name: 'metro-outside', st: 'mgroad', extra: 'ride-outside', to: ['purple', 'indiranagar'] },
+    { name: 'metro-outside', st: 'mgroad', extra: 'ride', rideView: 'outside', to: ['purple', 'indiranagar'] },
+    { name: 'metro-skyline', st: 'mgroad', extra: 'ride', rideView: 'skyline', to: ['purple', 'indiranagar'] },
+    { name: 'green-skyline', st: 'rajajinagar', extra: 'ride', rideView: 'skyline', to: ['green', 'yeshwanthpur'], ticks: 150 },
+    { name: 'purple-west-window', st: 'magadi', extra: 'ride', to: ['purple', 'mysoreroad'] },
     { name: 'metro-underground', st: 'majestic', extra: 'ride', to: ['purple', 'vidhana'] },
-    { name: 'metro-underground-outside', st: 'majestic', extra: 'ride-outside', to: ['purple', 'vidhana'] },
+    { name: 'metro-underground-outside', st: 'majestic', extra: 'ride', rideView: 'outside', to: ['purple', 'vidhana'] },
     { name: 'yellow-line', st: 'rvroad', extra: 'ride', to: ['yellow', 'silkboard'] },
-    { name: 'steam-ride', pc: 'malgudi', extra: 'steam' },
     { name: 'auto-ride', pc: 'brigade', extra: 'auto' },
     { name: 'title' },
   ];
@@ -438,14 +434,14 @@ async function suiteShots(browser) {
         if (sc.extra === 'map') openCityMap();
         if (sc.extra === 'map-zoom') { openCityMap(); BL.mapZoom = 4.4; }
         if (sc.extra === 'pick') openRidePicker(B_STATIONS[sc.st]);
-        BL.rideView = sc.extra === 'ride-outside' ? 'outside' : 'window';
+        BL.rideView = sc.rideView || 'window';
+        if (sc.extra === 'train') { BL.train = { x: B_TRAIN_STOP, dir: 1, state: 'dwell', t: 99, v: 0 }; }
         if (sc.to) {
           openRidePicker(B_STATIONS[sc.st]);
           const col = B_COLS.indexOf(sc.to[0]);
           BL.ride.sel = { col, row: B_LINES[sc.to[0]].stations.findIndex(s => s.id === sc.to[1]) };
-          confirmRide(); for (let i = 0; i < 220; i++) cityTick(1 / 60); BL.ride.caption = null;
+          confirmRide(); for (let i = 0; i < (sc.ticks || 220); i++) cityTick(1 / 60); BL.ride.caption = null;
         }
-        if (sc.extra === 'steam') { startSteamRide(0); for (let i = 0; i < 200; i++) cityTick(1 / 60); }
         if (sc.extra === 'auto') { BL.waypoint = { id: 'glasshouse', name: 'Lalbagh Glass House', ...B_POSTCARDS.find(p => p.id === 'glasshouse') }; startAutoRide(B_AUTO_STANDS[1]); for (let i = 0; i < 160; i++) cityTick(1 / 60); BL.ride.caption = null; }
       }, sc);
     } else await page.evaluate(() => goToTitle());

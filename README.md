@@ -24,27 +24,34 @@ controls appear automatically), and supports gamepads.
   drawn at a larger scale than the suburbs, but whatever is north or east of
   something in Bengaluru is north or east of it here too (a few landmarks
   are nudged to sit on the right side of their road), and roads slant where
-  the real ones do. North to south: ISKCON and Rajajinagar, Malleswaram
+  the real ones do. North to south: Yeshwanthpur, Rajajinagar (ISKCON, and
+  the World Trade Center and Orion Mall at Brigade Gateway), Malleswaram
   (Kadu Malleshwara, CTR) and Sankey Tank, Bangalore Palace, the Cantonment
   station, Shivajinagar (St. Mary's Basilica, Russell Market, Commercial
   Street), Ulsoor Lake and the Someshwara Temple, Indiranagar, the Race Course,
   the Planetarium, Majestic (KSR, the bus station, the cinemas), Vidhana
   Soudha, the High Court and Cubbon Park with its museums and library,
-  Chinnaswamy Stadium, MG Road, Brigade Road, St. Mark's Cathedral, Mayo Hall
-  and UB City, Chickpet, K.R. Market, the fort and Tipu Sultan's Summer
+  Chinnaswamy Stadium, MG Road, Brigade Road, St. Mark's Cathedral, the Hard
+  Rock Cafe, Mayo Hall, UB City and Kingfisher Towers, Chickpet, K.R. Market, the fort and Tipu Sultan's Summer
   Palace, the Town Hall and MTR, Lalbagh, Basavanagudi (Bull Temple, Bugle
   Rock, Gavi Gangadhareshwara, Vidyarthi Bhavan), Jayanagar's pink tabebuia
-  avenues, Koramangala and Silk Board. R.K. Narayan's Malgudi lies across the
-  river Sarayu, linked to KSR by the steam-hauled Malgudi Express.
+  avenues, Koramangala and Silk Board; out west, Vijayanagar and the Gali
+  Anjaneya Temple on Mysore Road. Trains run in from the west to KSR.
   Collect a postcard at each landmark. Ride the Purple, Green and Yellow lines
-  of Namma Metro on their real routes: they go underground through the old
-  city (City Railway Station to Cubbon Park, and Majestic to K.R. Market), and
-  the Yellow Line runs over the Silk Board double-decker. Take an
+  of Namma Metro on their real routes, from Mysore Road and Yeshwanthpur to
+  Indiranagar and Bommanahalli: they go underground through the old city
+  (City Railway Station to Cubbon Park, and Majestic to K.R. Market), and the
+  Yellow Line runs over the Silk Board double-decker. The train stops at every
+  station (hold dash to hurry it along), and V switches between a window
+  seat, the train from outside, and the skyline from beside the viaduct with
+  the landmarks named as they pass. Take an
   auto-rickshaw from a stand to wherever you are headed, look for fourteen
   hidden cats, talk to people, and watch day turn to night. Buildings are
   drawn in 3D: landmarks are modelled one by one (temples with their gopurams
   and vimanas), and everyday shops, flats, houses and offices carry the
-  rooftop water tanks, stair rooms and washing lines of a Bengaluru skyline.
+  rooftop water tanks, stair rooms and washing lines of a Bengaluru skyline;
+  Bangalore Palace, Chinnaswamy Stadium, ISKCON and the towers are full 3D
+  models.
   The city map (M) zooms in three steps, shows real distances and suggests a
   metro route; V switches between street, drone, Malgudi sketch and close-up
   views.
@@ -101,13 +108,13 @@ worker) only runs when served over http(s).
 cleanly, that every mode survives several minutes of a bot playing it, that
 the Bengaluru map has no overlapping buildings, buildings hiding roads or
 each other, unreachable landmarks or signs that don't fit, that every metro
-and steam ride arrives, and that every player-facing string is spelled
+and auto ride arrives, and that every player-facing string is spelled
 correctly. It also saves screenshots
 of key scenes to `tests/output/` for a human to look over.
 
 ```sh
 npm install
-npm test               # everything (about 20 seconds)
+npm test               # everything (a few minutes: it rides every metro route)
 npm test -- --quick    # shorter bot runs
 npm test -- city text  # only some suites: boot, text, city, modes, shots
 ```

@@ -16,8 +16,9 @@
 // Where a landmark faces a road (all the art faces south), that stretch of
 // road runs east-west in front of it.
 //
-// R.K. Narayan's Malgudi sits across the river Sarayu to the west, joined to
-// KSR Bengaluru City station by the Malgudi Express.
+// The map runs from Yeshwanthpur in the north-west, where the Green Line
+// ends, out past Vijayanagar to Mysore Road at the far end of the Purple
+// Line, and east to Indiranagar and Silk Board.
 // ---------------------------------------------------------------------------
 const B_KM = { lon: 108.48, lat: 110.6 };   // km per degree at 13°N
 
@@ -27,8 +28,8 @@ function bWarp(v0, p0, perDeg, spans) {
   for (const [v, pxKm] of spans) { const [pv, pp] = pts[pts.length - 1]; pts.push([v, pp + Math.abs(v - pv) * perDeg * pxKm]); }
   return pts;
 }
-const B_WX = bWarp(77.545, 860, B_KM.lon, [[77.563, 400], [77.612, 700], [77.648, 400]]);
-const B_WY = bWarp(13.0135, 0, B_KM.lat, [[12.993, 420], [12.940, 700], [12.907, 400]]);
+const B_WX = bWarp(77.524, 0, B_KM.lon, [[77.563, 400], [77.612, 700], [77.648, 400]]);
+const B_WY = bWarp(13.0275, 0, B_KM.lat, [[12.993, 420], [12.940, 700], [12.907, 400]]);
 function bWarpAt(v, pts) {
   const up = pts[1][0] > pts[0][0];
   let i = 0;
@@ -43,7 +44,7 @@ const geo = (lat, lon, dx = 0, dy = 0) => ({ x: lonX(lon) + dx, y: latY(lat) + d
 const bUnwarp = (p, pts) => bWarpAt(p, pts.map(([v, q]) => [q, v]));
 const bMetres = (a, b) => Math.hypot((bUnwarp(a.x, B_WX) - bUnwarp(b.x, B_WX)) * B_KM.lon, (bUnwarp(a.y, B_WY) - bUnwarp(b.y, B_WY)) * B_KM.lat) * 1000;
 
-const BW = 6976, BH = 6528;                 // city size in world pixels
+const BW = 7040, BH = 7200;                 // city size in world pixels
 
 // Geometry shared with the engine.
 function segDist(x, y, p) {
@@ -84,12 +85,15 @@ const geoBox = (lat0, lon0, lat1, lon1) => { const a = geo(lat0, lon0), b = geo(
 const gpoly = pts => pts.map(([lat, lon]) => { const p = geo(lat, lon); return [p.x, p.y]; });
 const B_DISTRICTS = [
   { name: 'Bengaluru', x: 0, y: 0, w: BW, h: BH, ground: '#c2b8a2', mus: 'city', trees: [['rain', 3], ['coconut', 2], ['gulmohar', 1]], verges: true },
-  { name: 'Malgudi', x: 0, y: 0, w: 760, h: BH, ground: '#cdb07c', mus: 'malgudi', trees: [['coconut', 5], ['rain', 3], ['gulmohar', 2]], density: 9000, blurb: "R.K. Narayan's town on the Sarayu" },
-  { name: 'Rajajinagar', ...geoBox(13.0135, 77.545, 12.9870, 77.5655), ground: '#bdb391', mus: 'city', trees: [['rain', 3], ['coconut', 3], ['pink', 1]], verges: true, blurb: 'Wide streets, and ISKCON on its hill' },
-  { name: 'Binnypet', ...geoBox(12.9870, 77.545, 12.9560, 77.5655), ground: '#c2b8a4', mus: 'city', trees: [['rain', 2], ['coconut', 2]], verges: true, blurb: 'Old mill lanes by the railway' },
+  { name: 'Yeshwanthpur', ...geoBox(13.0275, 77.524, 13.0135, 77.5655), ground: '#c2b8a4', mus: 'city', trees: [['rain', 3], ['coconut', 2]], verges: true, blurb: 'A railway junction and the sandal soap factory' },
+  { name: 'Mathikere', ...geoBox(13.0275, 77.5655, 13.0135, 77.5830), ground: '#b9b08a', mus: 'city', trees: [['rain', 4], ['coconut', 2]], verges: true, blurb: 'Quiet lanes beside the IISc woods' },
+  { name: 'Rajajinagar', ...geoBox(13.0135, 77.524, 12.9870, 77.5655), ground: '#bdb391', mus: 'city', trees: [['rain', 3], ['coconut', 3], ['pink', 1]], verges: true, blurb: 'ISKCON on its hill, and Orion Mall' },
+  { name: 'Vijayanagar', ...geoBox(12.9870, 77.524, 12.9560, 77.5455), ground: '#cfc5b0', mus: 'city', trees: [['rain', 3], ['coconut', 2], ['gulmohar', 1]], verges: true, blurb: 'Busy shopping streets on the Purple Line' },
+  { name: 'Binnypet', ...geoBox(12.9870, 77.5455, 12.9560, 77.5655), ground: '#c2b8a4', mus: 'city', trees: [['rain', 2], ['coconut', 2]], verges: true, blurb: 'Old mill lanes by the railway' },
+  { name: 'Deepanjali Nagar', ...geoBox(12.9560, 77.524, 12.9400, 77.5560), ground: '#c4b8a2', mus: 'city', trees: [['rain', 2], ['coconut', 2]], verges: true, blurb: 'Mysore Road, on its way out to Mysuru' },
   { name: 'Malleswaram', ...geoBox(13.0135, 77.5655, 12.9905, 77.5800), ground: '#b9b08a', mus: 'city', trees: [['rain', 4], ['coconut', 3], ['pink', 1]], verges: true, density: 9000, blurb: 'Old Bengaluru: temples, flowers, filter coffee' },
   { name: 'Sankey Tank', ...geoBox(13.0135, 77.5738, 13.0030, 77.5830), ground: '#74a34a', mus: 'city', trees: [['rain', 4], ['pink', 2], ['gulmohar', 1]], density: 5000, blurb: "Colonel Sankey's lake, dug in 1882" },
-  { name: 'Sadashivanagar', ...geoBox(13.0135, 77.5830, 13.0030, 77.5985), ground: '#8db562', mus: 'city', trees: [['rain', 5], ['gulmohar', 1]], density: 6000, blurb: 'Big gardens, bigger trees' },
+  { name: 'Sadashivanagar', ...geoBox(13.0275, 77.5830, 13.0030, 77.5985), ground: '#8db562', mus: 'city', trees: [['rain', 5], ['gulmohar', 1]], density: 6000, blurb: 'Big gardens, bigger trees' },
   { name: 'Bangalore Palace', ...geoBox(13.0030, 77.5880, 12.9915, 77.5985), ground: '#7fae54', mus: 'city', trees: [['rain', 5], ['royal', 1], ['gulmohar', 1]], density: 7000, blurb: "The Wodeyars' Tudor palace and its grounds" },
   { name: 'Vasanth Nagar', ...geoBox(13.0135, 77.5985, 12.9862, 77.6120), ground: '#c4b8a2', mus: 'city', trees: [['rain', 4], ['gulmohar', 1], ['pink', 1]], verges: true, blurb: 'Bungalows by the Cantonment station' },
   { name: 'Shivajinagar', ...geoBox(12.9862, 77.6005, 12.9810, 77.6120), ground: '#c2b8a4', mus: 'city', trees: [['rain', 1], ['coconut', 1]], density: 20000, blurb: 'Bazaars, a basilica and Russell Market' },
@@ -118,7 +122,7 @@ const B_DISTRICTS = [
 
 // ---------------------------------------------------------------------------
 // Roads. Each is a polyline of points given as [lat, lon] (or [x, y] in
-// Malgudi); `small` streets are narrower and `dirt` ones are Malgudi's.
+// world pixels); `small` streets are narrower.
 // ew() and ns() make straight east-west and north-south roads.
 // ---------------------------------------------------------------------------
 const ew = (name, lat, lon0, lon1, o = {}) => ({ name, pts: [[lonX(lon0), latY(lat)], [lonX(lon1), latY(lat)]], w: o.small ? 20 : 28, ...o });
@@ -130,25 +134,34 @@ const JN = {
   hudson: [12.9668, 77.5866], queensCircle: [12.9768, 77.5990], queensStatue: [12.9805, 77.5975], richmond: [12.9655, 77.5995],
   dairy: [12.9375, 77.5995], silkBoard: [12.9168, 77.6235], trinity: [12.9748, 77.6185], halasuru: [12.9757, 77.6300],
 };
-const LATS = { mg: 12.9748, kg: 12.9756, ambedkar: 12.9787, orr: 12.9168, cmh: 12.9786, oldMadras: 12.9757 };
+const LATS = { mg: 12.9748, kg: 12.9756, ambedkar: 12.9787, orr: 12.9168, cmh: 12.9786, oldMadras: 12.9757, rail: 12.9819 };
 const B_ROADS = [
   // Majestic, the old city and the west.
-  ew('Magadi Road', LATS.kg, 77.545, 77.5655),
+  ew('Magadi Road', LATS.kg, 77.524, 77.5655),
   ew('Kempegowda Road', LATS.kg, 77.5655, 77.5805),
   pl('Seshadri Road', [JN.anandRao, JN.krCircle]),
   pl('Race Course Road', [JN.anandRao, JN.chalukya]),
   pl('Palace Road', [JN.mysoreBank, [12.9790, 77.5826], JN.chalukya]),
   ns('Avenue Road', 77.5790, LATS.kg, 12.9640),
-  pl('Mysore Road', [[12.9640, 77.5745], [12.9600, 77.5660], [12.9580, 77.545]]),
+  pl('Mysore Road', [[12.9640, 77.5745], [12.9600, 77.5660], [12.9535, 77.5440], [12.9522, 77.5373], [12.9465, 77.5298], [12.9430, 77.5245]]),
   ns('K.R. Road', 77.5745, LATS.kg, 12.9418),
   ns('Kanakapura Road', 77.5745, 12.9418, 12.907),
-  ns('Chord Road', 77.5530, 13.0135, LATS.kg),
-  ns('Sampige Road', 77.5712, 13.0135, 12.9870),
-  ns('Margosa Road', 77.5675, 13.0135, 12.9905, { small: true }),
-  ew('8th Cross, Malleswaram', 12.9995, 77.5530, 77.5712, { small: true }),
-  ew('15th Cross, Malleswaram', 13.0045, 77.5530, 77.5712, { small: true }),
+  ns('Sampige Road', 77.5712, 13.0110, 12.9870),
+  ns('Margosa Road', 77.5675, 13.0110, 12.9905, { small: true }),
+  ew('8th Cross, Malleswaram', 12.9995, 77.5590, 77.5712, { small: true }),
+  ew('15th Cross, Malleswaram', 13.0045, 77.5590, 77.5712, { small: true }),
+  ew('18th Cross, Malleswaram', 13.0110, 77.5590, 77.5712, { small: true }),
+  // Out west: Yeshwanthpur, Rajajinagar, Vijayanagar. Chord Road carries the
+  // Green Line north to Yeshwanthpur and, further south, the Purple Line.
+  pl('Chord Road', [[13.0262, 77.5497], [12.9800, 77.5497], [LATS.kg, 77.5373], [12.9440, 77.5373]]),
+  pl('Tumkur Road', [[13.0232, 77.5497], [13.0268, 77.5430]]),
+  pl('Dr. Rajkumar Road', [[12.9905, 77.5590], [13.0200, 77.5590], [13.0232, 77.5497]]),
+  ew('Mathikere Main Road', 13.0200, 77.5590, 77.5855),
+  ns('West of Chord Road', 77.5420, 13.0262, LATS.kg),
+  ew('Rajajinagar Main Road', 12.9905, 77.524, 77.5590),
+  ew('Vijayanagar Main Road', 12.9660, 77.524, 77.5455, { small: true }),
   pl('Sankey Road', [[13.0010, 77.5855], [13.0010, 77.5790], [13.0045, 77.5712]]),
-  ns('Bellary Road', 77.5855, 13.0135, JN.chalukya[0]),
+  ns('Bellary Road', 77.5855, 13.0275, JN.chalukya[0]),
   ew('Chickpet Main Road', 12.9690, 77.5655, 77.5790, { small: true }),
   // Vidhana Soudha, Cubbon Park and the Cantonment.
   pl('Dr. Ambedkar Veedhi', [JN.krCircle, [LATS.ambedkar, 77.5885], [LATS.ambedkar, 77.5955], JN.queensStatue]),
@@ -192,20 +205,14 @@ const B_ROADS = [
   ew('80 Feet Road, Koramangala', 12.9365, 77.6113, 77.6267),
   ns('Inner Ring Road', 77.6267, 12.9365, 12.9690),
   ew('1st Main, Koramangala', 12.9300, 77.6150, 77.6267, { small: true }),
-  // Malgudi's dirt roads; Market Road crosses the Sarayu on a bridge into Magadi Road.
-  { name: 'Market Road, Malgudi', pts: [[0, latY(LATS.kg)], [lonX(77.545), latY(LATS.kg)]], w: 28, dirt: true, lamps: 120 },
-  { name: 'Vinayaka Mudali Street', pts: [[0, 1361], [760, 1361]], w: 22, dirt: true },
-  { name: 'Kabir Street', pts: [[423, 950], [423, 4250]], w: 26, dirt: true },
-  { name: 'Lawley Road', pts: [[0, 2948], [760, 2948]], w: 24, dirt: true },
 ];
 
-const B_RIVER = { x: 760, y: 0, w: 80, h: BH };       // the Sarayu
-const RAIL_Y = 1810;                                  // the Malgudi Express line
-const B_RAIL = { y: RAIL_Y, x0: 40, x1: lonX(77.5694) + 240 };
-const B_BRIDGES = [{ y: latY(LATS.kg) - 14, h: 28 }, { y: RAIL_Y - 8, h: 16 }, { y: 3644, h: 12 }];
-const B_PLATFORMS = [{ x: 200, y: RAIL_Y - 24, w: 280, h: 14, edge: 'bottom' }, { x: lonX(77.5694) - 240, y: RAIL_Y + 8, w: 480, h: 32, edge: 'top' }];
-const B_GHATS = { y: 2470 };
-const B_PADDY = { x: 0, y: 3660, w: 760, h: BH - 3660 };
+// The railway runs in from the west, behind KSR Bengaluru City, to its platforms.
+const RAIL_Y = latY(LATS.rail);
+const B_RAIL = { y: RAIL_Y, x0: 0, x1: lonX(77.5694) + 240 };
+const B_PLATFORMS = [{ x: lonX(77.5694) - 240, y: RAIL_Y + 8, w: 480, h: 32, edge: 'top' }];
+// Where an incoming train's engine stops, at the east end of the platform.
+const B_TRAIN_STOP = lonX(77.5694) + 190;
 
 const B_LAKES = [
   { name: 'Sankey Tank', ...geo(13.0085, 77.5754), rx: 190, ry: 66, islands: [{ ...geo(13.0088, 77.5732), rx: 26, ry: 11 }] },
@@ -245,7 +252,7 @@ const B_PATHS = [
   gpath([12.9798, 77.6140], [12.9798, 77.6240], 8),
 ];
 // Rows of trees along avenues: pink tabebuias in Jayanagar and Cubbon Park,
-// royal palms in Lalbagh, a forest edge along Malgudi.
+// royal palms in Lalbagh.
 const B_TREE_ROWS = [
   ...[12.9330, 12.9270].flatMap(lat => [-24, 26].map(dy => ({ kind: 'pink', x0: lonX(77.5815), y0: latY(lat) + dy, x1: lonX(77.5990), y1: latY(lat) + dy, step: 40, zig: dy > 0 ? 20 : 0, force: true, spacing: 22 }))),
   { kind: 'pink', x0: lonX(77.5880) - 20, y0: latY(12.9435), x1: lonX(77.5880) - 20, y1: latY(12.9180), step: 44, force: true, spacing: 22 },
@@ -253,25 +260,33 @@ const B_TREE_ROWS = [
   { kind: 'pink', x0: lonX(77.5888) + 17, y0: latY(12.9762) + 14, x1: lonX(77.5962), y1: latY(12.9762) + 14, step: 34, spacing: 20 },
   { kind: 'royal', x0: lonX(77.5852) - 20, y0: latY(12.9528), x1: lonX(77.5852) - 20, y1: latY(12.9470), step: 46, spacing: 20 },
   { kind: 'royal', x0: lonX(77.5852) + 20, y0: latY(12.9528), x1: lonX(77.5852) + 20, y1: latY(12.9470), step: 46, spacing: 20 },
-  { kind: 'mix', x0: 30, y0: 20, x1: 30, y1: BH - 10, step: 22, jitter: 30, spacing: 18 },
 ];
 
 // ---------------------------------------------------------------------------
 // Namma Metro, after the real routes. Points marked 'u' start a stretch that
 // runs underground: the Purple Line from just east of Magadi Road to Cubbon
 // Park, the Green Line from south of Mantri Square to K.R. Market. Elevated
-// stretches follow the road below them. Stations sit at their real places;
-// `exit` is the street-level entrance for the ones underground.
+// stretches follow the road below them, straightened where the real line
+// bends (the Purple Line out to Mysore Road, the Green Line up Chord Road to
+// Yeshwanthpur). Stations sit at their real places, moved onto the line where
+// it has been straightened; `exit` is the street-level entrance for the ones
+// underground.
 // ---------------------------------------------------------------------------
 const yMG = latY(LATS.mg), yKG = latY(LATS.kg), yORR = latY(LATS.orr), yAmb = latY(LATS.ambedkar);
 const xRV = lonX(77.5803), xKR = lonX(77.5745), xSampige = lonX(77.5712), xHosur = lonX(77.6235);
 const yRajkumar = latY(12.9975), yFort = latY(12.9490);
+const xChord = lonX(77.5497), xVijay = lonX(77.5373), yMysore = latY(12.9465);
 const B_LINES = {
   purple: {
     name: 'Purple Line', col: '#8a4fb8', dark: '#5b2f80', light: '#c9a3e6',
-    pts: [[lonX(77.5465), yKG], [lonX(77.5620), yKG, 'u'], [lonX(77.5657), yKG, 'u'], [lonX(77.5728), yKG, 'u'], [lonX(77.5840), latY(12.9741), 'u'], [lonX(77.5927), yAmb, 'u'], [lonX(77.5969), latY(12.9811), 'u'],
+    pts: [[lonX(77.5266), yMysore], [xVijay, yMysore], [xVijay, yKG], [lonX(77.5620), yKG, 'u'], [lonX(77.5657), yKG, 'u'], [lonX(77.5728), yKG, 'u'], [lonX(77.5840), latY(12.9741), 'u'], [lonX(77.5927), yAmb, 'u'], [lonX(77.5969), latY(12.9811), 'u'],
       [lonX(77.6000), yMG], [lonX(77.6205), yMG], [lonX(77.6205), latY(LATS.oldMadras)], [lonX(77.6300), latY(LATS.oldMadras)], [lonX(77.6300), latY(LATS.cmh)], [lonX(77.6449), latY(LATS.cmh)], [lonX(77.6449), latY(12.9880)]],
     stations: [
+      { id: 'mysoreroad', name: 'Mysore Road', x: lonX(77.5298), y: yMysore },
+      { id: 'deepanjali', name: 'Deepanjali Nagar', x: xVijay, y: latY(12.9522) },
+      { id: 'attiguppe', name: 'Attiguppe', x: xVijay, y: latY(12.9620) },
+      { id: 'vijayanagar', name: 'Vijayanagar', x: xVijay, y: latY(12.9708) },
+      { id: 'hosahalli', name: 'Hosahalli', x: lonX(77.5455), y: yKG },
       { id: 'magadi', name: 'Magadi Road', x: lonX(77.5554), y: yKG },
       { id: 'cityrail', name: 'City Railway Station', x: lonX(77.5657), y: yKG, exit: [lonX(77.5657), yKG - 22] },
       { id: 'majestic', name: 'Majestic', x: lonX(77.5728), y: yKG, exit: [lonX(77.5728) + 16, yKG - 22] },
@@ -287,10 +302,13 @@ const B_LINES = {
   },
   green: {
     name: 'Green Line', col: '#3fa34d', dark: '#24702f', light: '#9fdc8f',
-    pts: [[lonX(77.5480), yRajkumar], [xSampige, yRajkumar], [xSampige, latY(12.9872), 'u'], [lonX(77.5728), yKG, 'u'], [lonX(77.5748), latY(12.9668), 'u'], [xKR, latY(12.9614), 'u'],
+    pts: [[xChord, latY(13.0262)], [xChord, yRajkumar], [xSampige, yRajkumar], [xSampige, latY(12.9872), 'u'], [lonX(77.5728), yKG, 'u'], [lonX(77.5748), latY(12.9668), 'u'], [xKR, latY(12.9614), 'u'],
       [xKR, latY(12.9575)], [xKR, yFort], [xRV, yFort], [xRV, yORR], [xKR, yORR], [xKR, latY(12.9128)]],
     stations: [
-      { id: 'rajajinagar', name: 'Rajajinagar', x: lonX(77.5497), y: yRajkumar },
+      { id: 'yeshwanthpur', name: 'Yeshwanthpur', x: xChord, y: latY(13.0232) },
+      { id: 'sandalsoap', name: 'Sandal Soap Factory', x: xChord, y: latY(13.0147) },
+      { id: 'mahalakshmi', name: 'Mahalakshmi', x: xChord, y: latY(13.0082) },
+      { id: 'rajajinagar', name: 'Rajajinagar', x: xChord, y: latY(13.0003) },
       { id: 'kuvempu', name: 'Kuvempu Road', x: lonX(77.5570), y: yRajkumar },
       { id: 'srirampura', name: 'Srirampura', x: lonX(77.5633), y: yRajkumar },
       { id: 'sampige', name: 'Mantri Square Sampige Road', x: xSampige, y: latY(12.9905) },
@@ -319,24 +337,20 @@ const B_LINES = {
   },
 };
 
-// The Malgudi Express stops at both ends of the line.
-const B_STEAM_STOPS = [
-  { id: 'malgudi', name: 'Malgudi', x: 330, exit: { x: 330, y: RAIL_Y - 14 } },
-  { id: 'ksr', name: 'KSR Bengaluru City', x: lonX(77.5694), exit: { x: lonX(77.5694), y: RAIL_Y + 34 } },
-];
-
 // ---------------------------------------------------------------------------
 // Landmarks, each at its real place with its postcard. landmark() takes the sprite,
 // the latitude and longitude of its middle and { fw, fd } (footprint), dx/dy
 // nudges, minimap colour, signs (x, y relative to the sprite, or an anchor)
 // and the postcard: name, fact (short and true), and where it is if not just
-// in front of the door.
+// in front of the door. Landmarks with a postcard (or `icon`) stand on the
+// skyline seen from the metro, named.
 // ---------------------------------------------------------------------------
 const B_BUILDINGS = [];
 const B_POSTCARDS = [];
 function landmark(spr, lat, lon, o) {
   const p = geo(lat, lon, o.dx || 0, o.dy || 0);
   const b = { spr, x: p.x, y: p.y + Math.round(o.fd / 2), fw: o.fw, fd: o.fd, mcol: o.mcol === undefined ? '#e9e2d4' : o.mcol, ...(o.signs ? { signs: o.signs } : {}), ...(o.island ? { island: true } : {}) };
+  if (o.pc || o.icon) { b.icon = true; b.name = o.pc ? o.pc.name : o.icon; }
   B_BUILDINGS.push(b);
   if (o.pc) B_POSTCARDS.push({ id: o.pc.id || spr, name: o.pc.name, x: b.x + (o.pc.dx || 0), y: b.y + (o.pc.dy === undefined ? 16 : o.pc.dy), r: o.pc.r || 60, fact: o.pc.fact });
   return b;
@@ -345,20 +359,25 @@ function landmark(spr, lat, lon, o) {
 const place = (id, name, lat, lon, fact, o = {}) => B_POSTCARDS.push({ id, name, ...geo(lat, lon, o.dx || 0, o.dy || 0), r: o.r || 60, fact, ...(o.ride ? { ride: true } : {}) });
 const signAt = (text, x, y, size, color = '#ffffff', outline) => ({ x, y, text, size, color, ...(outline === null ? { outline: null } : {}) });
 
-// North: Rajajinagar, Malleswaram, the Palace, the Cantonment.
-landmark('iskcon', 13.0098, 77.5512, { dx: -40, fw: 150, fd: 56, mcol: '#f4f1ea', pc: { name: 'ISKCON Temple', fact: 'The Hare Krishna Hill temple was opened on 31 May 1997 by President Shankar Dayal Sharma.' } });
+// North-west: Yeshwanthpur and Rajajinagar. ISKCON stands just east of Chord
+// Road; WTC and Orion Mall make up Brigade Gateway on Dr. Rajkumar Road.
+landmark('iskcon', 13.0098, 77.5512, { dx: 44, fw: 140, fd: 70, mcol: '#f2e2b8', pc: { name: 'ISKCON Temple', fact: 'The Hare Krishna temple on its hill, opened in 1997 by President Shankar Dayal Sharma. Its tower is gold and glass.', r: 70 } });
+landmark('wtc', 13.0132, 77.5572, { fw: 70, fd: 40, mcol: '#5f7f9f', pc: { name: 'World Trade Center', fact: 'WTC Bengaluru at Brigade Gateway, one of the tallest towers in the city.', r: 50 } });
+landmark('orion', 13.0112, 77.5555, { dx: 47, fw: 140, fd: 40, mcol: '#c9d6e0', signs: [{ anchor: 'sign', text: 'ORION MALL', size: 4.4, color: '#ffffff' }], pc: { name: 'Orion Mall', fact: 'A big mall at Brigade Gateway, with a lake out the back.', r: 50 } });
+
+// North: Malleswaram, the Palace, the Cantonment.
 landmark('malleshwara', 13.0050, 77.5714, { dx: 66, dy: -10, fw: 88, fd: 38, mcol: '#e8dcc0', pc: { id: 'malleswaram', name: 'Kadu Malleshwara Temple', fact: 'A 17th-century Shiva temple that gave Malleswaram its name.' } });
 landmark('tiffin', 12.9985, 77.5690, { dy: -6, fw: 70, fd: 26, mcol: '#f2e6c8', signs: [{ anchor: 'sign', text: 'CTR', size: 4.4, color: '#ffffff' }], pc: { id: 'ctr', name: 'CTR, Malleswaram', fact: 'Central Tiffin Room: butter-soaked benne masala dosa since the 1920s.', r: 44 } });
 landmark('palace', 12.9986, 77.5920, { fw: 320, fd: 60, mcol: '#d8cfbd', pc: { name: 'Bangalore Palace', fact: "The Wodeyars' palace, built in Tudor style and said to be modelled on Windsor Castle." } });
 landmark('cantonment', 12.9937, 77.5980, { fw: 148, fd: 40, mcol: '#efe0bf', signs: [{ anchor: 'sign', text: 'BENGALURU CANTONMENT', size: 3.2, color: '#ffffff' }], pc: { name: 'Cantonment Station', fact: 'Trains have run from here since 1864, when the Madras Railway opened its line.' } });
 landmark('stmarys', 12.9843, 77.6046, { dy: -4, fw: 104, fd: 48, mcol: '#efe7d8', pc: { name: "St. Mary's Basilica", fact: "One of Bengaluru's oldest churches; in 1973 it became Karnataka's first minor basilica." } });
 landmark('russell', 12.9852, 77.6085, { fw: 132, fd: 40, mcol: '#cbb48c', signs: [{ anchor: 'sign', text: 'RUSSELL MARKET', size: 3.4, color: '#ffe7a8' }], pc: { name: 'Russell Market', fact: 'Built in 1927 and named after T.B. Russell, a municipal commissioner.' } });
-landmark('gurudwara', 12.9790, 77.6158, { fw: 70, fd: 24, mcol: '#f2efe6' });
+landmark('gurudwara', 12.9790, 77.6158, { fw: 70, fd: 24, mcol: '#f2efe6', icon: 'Gurudwara' });
 landmark('someshwara', 12.9754, 77.6242, { dy: -95, fw: 96, fd: 40, mcol: '#bdb8ac', pc: { name: 'Someshwara Temple', fact: 'One of the oldest temples in the city, enlarged under Kempe Gowda in Vijayanagara times.' } });
 
 // Race Course, Vidhana Soudha, Cubbon Park.
 landmark('planetarium', 12.9847, 77.5895, { dy: 10, fw: 70, fd: 36, mcol: '#f4f1ea', signs: [{ anchor: 'sign', text: 'PLANETARIUM', size: 3.2, color: '#ffffff' }], pc: { name: 'Nehru Planetarium', fact: 'Opened in 1989; under its 15 metre dome, 210 people watch the stars at noon.', r: 50 } });
-landmark('grandstand', 12.9842, 77.5822, { fw: 216, fd: 30, mcol: '#e9e2d4', signs: [signAt('BANGALORE TURF CLUB', 110, 43, 3.6)] });
+landmark('grandstand', 12.9842, 77.5822, { fw: 216, fd: 30, mcol: '#e9e2d4', icon: 'Race Course', signs: [signAt('BANGALORE TURF CLUB', 110, 43, 3.6)] });
 landmark('holidayinn', 12.9815, 77.5780, { dy: -2, fw: 96, fd: 46, mcol: '#e9dfcc', signs: [signAt('HOLIDAY INN', 55, 26, 4.4)], pc: { name: 'Holiday Inn, Race Course Rd', fact: 'A hotel with the racetrack for a neighbour. Room service comes with hoofbeats.', r: 46 } });
 landmark('vidhana', 12.9799, 77.5906, { fw: 356, fd: 60, mcol: '#efe6d2', signs: [{ anchor: 'inscription', text: "GOVERNMENT'S WORK IS GOD'S WORK", size: 3, color: '#3a2a1a', outline: null }], pc: { name: 'Vidhana Soudha', fact: "Karnataka's legislature, finished in 1956 in Bangalore granite. Over the door: Government's Work is God's Work.", r: 70, dy: 14 } });
 landmark('highcourt', 12.9778, 77.5925, { dy: 46, fw: 232, fd: 56, mcol: '#c0473c', pc: { name: 'Karnataka High Court', fact: 'Attara Kacheri, the "eighteen offices". The red building (1868) faces Vidhana Soudha.' } });
@@ -366,10 +385,15 @@ landmark('library', 12.9738, 77.5928, { dx: -34, fw: 104, fd: 36, mcol: '#c0473c
 landmark('bandstand', 12.9752, 77.5948, { fw: 30, fd: 12, mcol: '#efe7da', pc: { id: 'cubbon', name: 'Cubbon Park', fact: 'Laid out in 1870. Its official name is Sri Chamarajendra Park. Morning walkers: countless.' } });
 landmark('govmuseum', 12.9764, 77.5958, { fw: 126, fd: 36, mcol: '#b8483d', pc: { name: 'Government Museum', fact: "Founded in 1865, one of India's oldest museums; the red building opened in 1877.", r: 50 } });
 landmark('museum', 12.9741, 77.5946, { fw: 160, fd: 40, mcol: '#d9c7a2', signs: [signAt('VISVESVARAYA MUSEUM', 85, 12, 3.4)], pc: { name: 'Visvesvaraya Museum', fact: "Named after Sir M. Visvesvaraya, the engineer whose birthday is India's Engineers' Day.", r: 50 } });
-landmark('ubcity', 12.9709, 77.5978, { dx: 30, fw: 180, fd: 70, mcol: '#7fa6c4', signs: [signAt('UB CITY', 95, 188, 5, '#ffe7a8')], pc: { name: 'UB City', fact: 'Glass towers and a luxury mall on Vittal Mallya Road.' } });
+landmark('ubcity', 12.9709, 77.5978, { dx: 5, fw: 180, fd: 70, mcol: '#7fa6c4', signs: [signAt('UB CITY', 95, 188, 5, '#ffe7a8')], pc: { name: 'UB City', fact: 'Glass towers and a luxury mall on Vittal Mallya Road.' } });
+
+// Kingfisher Towers: really on the Kasturba Road side of UB City, where the
+// towers would hide the road, so here they stand on its east side.
+landmark('kingfisher', 12.9722, 77.5956, { dx: 324, dy: 116, fw: 92, fd: 40, mcol: '#e9eef2', pc: { name: 'Kingfisher Towers', fact: 'Luxury towers on Kasturba Road, with a white mansion of a penthouse on the roof.', r: 50 } });
 
 // MG Road, Brigade Road, the Cantonment churches.
 landmark('stmarks', 12.9733, 77.6019, { dy: -1, fw: 110, fd: 44, mcol: '#f2efe6', pc: { name: "St. Mark's Cathedral", fact: "One of the city's oldest churches, consecrated in 1816 at the top of MG Road.", r: 50 } });
+landmark('hardrock', 12.9692, 77.5999, { fw: 86, fd: 34, mcol: '#9a948a', signs: [{ anchor: 'sign', text: 'HARD ROCK CAFE', size: 3.4, color: '#ffffff' }], pc: { name: 'Hard Rock Cafe', fact: "On St. Mark's Road, a short walk from MG Road. Guitars on the walls, music all night.", r: 45 } });
 landmark('mayohall', 12.9724, 77.6105, { fw: 118, fd: 40, mcol: '#f1e8d6', pc: { name: 'Mayo Hall', fact: 'Built to honour Viceroy Lord Mayo; its upper floor has held the Kempegowda Museum since 2011.', r: 50 } });
 
 // Majestic, Gandhinagar, Chickpet, K.R. Market.
@@ -395,19 +419,16 @@ landmark('complex', 12.9300, 77.5835, { fw: 146, fd: 36, mcol: '#d9cbb0', signs:
 landmark('bakery', 12.9300, 77.5862, { dx: 30, fw: 48, fd: 18, mcol: '#f0d78a', signs: [signAt('IYENGAR BAKERY', 26, 8, 3.4, '#b8281e', null)] });
 landmark('statue', 12.9360, 77.5803, { fw: 8, fd: 6, mcol: null, island: true });
 
+// Mysore Road.
+landmark('temple', 12.9500, 77.5320, { dy: 40, fw: 50, fd: 22, mcol: '#e8dcc0', pc: { id: 'anjaneya', name: 'Gali Anjaneya Temple', fact: 'An old Hanuman temple on Mysore Road, on the banks of the Vrishabhavathi river.', r: 50 } });
+
 // Koramangala and Silk Board.
 landmark('flyover', LATS.orr, 77.6235, { dx: -200, dy: 52, fw: 0, fd: 0, mcol: null, signs: [signAt('SILK BOARD JN', 160, 6, 4)] });
 landmark('darshini', 12.9733, 77.6052, { fw: 40, fd: 14, mcol: '#f2e0b0', signs: [signAt('FILTER KAAPI', 22, 6.5, 3.4, '#7a2b25', null)] });
 
-// Malgudi.
-for (const [spr, x, y, fw, fd, mcol, signs] of [
-  ['mstation', 300, RAIL_Y - 24, 124, 28, '#e1b45f'], ['board', 470, RAIL_Y - 14, 30, 3, null, [signAt('MALGUDI', 20, 5, 5, '#1d1816', null)]],
-  ['tunnel', 50, RAIL_Y + 20, 44, 14, '#7d705c'], ['mempi', 120, RAIL_Y + 60, 6, 3, null, [signAt('TO MEMPI FOREST', 13, 3, 3.2, '#1d1816', null)]],
-  ['school', 250, 2550, 124, 38, '#d9c7a2', [signAt('ALBERT MISSION SCHOOL', 65, 31, 3.4, '#3d2a1e', null)]], ['banyan', 560, 2800, 34, 12, null],
-  ['temple', 200, 3170, 52, 22, '#e8dcc0'], ['hut', 200, 3900, 36, 16, '#c9a55a'], ['hut', 600, 4050, 36, 16, '#c9a55a'],
-]) B_BUILDINGS.push({ spr, x, y, fw, fd, mcol, ...(signs ? { signs } : {}) });
+// Chinnaswamy Stadium: a bowl of stands drawn standing up, with floodlights.
+B_BUILDINGS.push({ spr: 'stadium', x: B_STADIUM.x, y: B_STADIUM.y + B_STADIUM.ry + 6, fw: 0, fd: 0, mcol: null, icon: true, name: 'Chinnaswamy Stadium', signs: [{ anchor: 'name', text: 'M. CHINNASWAMY STADIUM', size: 3.6, color: '#ffffff' }] });
 const nearB = (spr, dx, dy) => { const b = B_BUILDINGS.find(o => o.spr === spr); return { x: b.x + dx, y: b.y + dy }; };
-for (const [x, y] of [[B_STADIUM.x + 128, B_STADIUM.y - 78], [B_STADIUM.x - 128, B_STADIUM.y - 78], [B_STADIUM.x + 128, B_STADIUM.y + 92], [B_STADIUM.x - 128, B_STADIUM.y + 92]]) B_BUILDINGS.push({ spr: 'flood', x, y, fw: 6, fd: 4, mcol: null });
 
 // Postcards for places that are not buildings, and for the two rides.
 place('stadium', 'Chinnaswamy Stadium', 12.9781, 77.6012, 'Test cricket here since 1974, and home of RCB. Ee sala cup namde!', { dy: 120, r: 80 });
@@ -422,13 +443,6 @@ place('koramangala', 'Koramangala', 12.9365, 77.6200, 'Start-ups, late-night caf
 place('silkboard', 'Silk Board Junction', LATS.orr, 77.6235, 'Famous for its traffic. Pack snacks.', { dx: -40, dy: 30, r: 70 });
 place('metro', 'Namma Metro', 12.9787, 77.5927, 'Opened in 2011. Purple runs east to west, Green north to south, and the Yellow Line (2025) out past Silk Board.', { ride: true });
 place('auto', 'Namma Auto', 12.9748, 77.6050, 'Green and yellow, three wheels and a meter that is always somehow sleeping.', { ride: true });
-place('express', 'Malgudi Express', 12.9783, 77.5694, 'The steam train between KSR Bengaluru City and Malgudi, across the Sarayu.', { ride: true });
-B_POSTCARDS.push(
-  { id: 'malgudi', name: 'Malgudi Station', x: 330, y: RAIL_Y - 14, r: 60, fact: "R.K. Narayan's imaginary town. Shankar Nag filmed Malgudi Days (1986) in Agumbe." },
-  { id: 'swami', name: 'Swami & Friends', x: 560, y: 2816, r: 50, fact: "Swami and Friends (1935) was R.K. Narayan's first novel. Swami still hasn't done his sums." },
-  { id: 'school', name: 'Albert Mission School', x: 250, y: 2566, r: 50, fact: "Swami's school in the stories, where arithmetic was a daily trial." },
-  { id: 'sarayu', name: 'Sarayu Ghats', x: 744, y: 2520, r: 50, fact: 'The river Sarayu runs past Malgudi. Best visited after school, says Swami.' },
-);
 
 // ---------------------------------------------------------------------------
 // Everyday buildings: rows of shops, homes and offices, placed when the city
@@ -464,12 +478,29 @@ const B_SHOPS = {
 const shopRow = (style, ...names) => names.map(n => ({ shop: B_SHOPS[n], style }));
 const homeRow = (...kinds) => kinds;
 
-// Malleswaram and Rajajinagar.
+// Malleswaram, Rajajinagar, Yeshwanthpur, Mathikere.
 rowNorth(12.9995, 77.5675, 77.5712, shopRow('bazaar', 'flowers', 'sweets', 'sarees', 'coffee', 'books', 'pooja', 'fruits'), { half: 10 });
-rowBlock(13.0130, 77.5655, 13.0005, 77.5710, homeRow('mhouse'));
+rowBlock(13.0105, 77.5655, 13.0005, 77.5710, homeRow('mhouse'));
 rowBlock(12.9970, 77.5655, 12.9905, 77.5710, homeRow('mhouse', 'jhouse'));
-rowBlock(13.0130, 77.5535, 12.9905, 77.5655, homeRow('jhouse', 'jhouse', 'apartment'));
-rowBlock(13.0130, 77.5455, 12.9905, 77.5528, homeRow('jhouse', 'apartment'));
+rowBlock(13.0105, 77.5595, 12.9905, 77.5655, homeRow('jhouse', 'jhouse', 'apartment'));
+rowBlock(13.0130, 77.5505, 12.9910, 77.5590, homeRow('jhouse', 'apartment'));
+rowBlock(13.0130, 77.5245, 12.9910, 77.5490, homeRow('jhouse', 'jhouse', 'apartment'));
+rowNorth(12.9905, 77.5245, 77.5490, shopRow('street', 'sweets', 'mobiles', 'bakery', 'sarees', 'meals', 'pharmacy', 'coffee', 'fruits'));
+rowBlock(13.0265, 77.5245, 13.0140, 77.5490, homeRow('office', 'apartment', 'jhouse'));
+rowBlock(13.0195, 77.5505, 13.0145, 77.5585, homeRow('apartment', 'office'));
+rowBlock(13.0270, 77.5505, 13.0225, 77.5600, homeRow('office', 'apartment'));
+rowBlock(13.0265, 77.5600, 13.0120, 77.5850, homeRow('jhouse', 'mhouse', 'jhouse', 'apartment'));
+rowBlock(13.0265, 77.5865, 13.0040, 77.5980, homeRow('jhouse', 'apartment'), { gap: 16 });
+rowBlock(13.0265, 77.5995, 13.0140, 77.6490, homeRow('jhouse', 'apartment', 'jhouse', 'mhouse'));
+rowBlock(13.0130, 77.6125, 12.9905, 77.6490, homeRow('jhouse', 'apartment', 'mhouse'));
+// Vijayanagar and Mysore Road.
+rowNorth(12.9660, 77.5245, 77.5450, shopRow('street', 'sarees', 'sweets', 'mobiles', 'bakery', 'shoes', 'meals', 'jewels', 'coffee'), { half: 10 });
+rowBlock(12.9890, 77.5245, 12.9770, 77.5480, homeRow('jhouse', 'apartment', 'jhouse'));
+rowBlock(12.9745, 77.5245, 12.9670, 77.5360, homeRow('jhouse', 'mhouse'));
+rowBlock(12.9745, 77.5385, 12.9570, 77.5450, homeRow('jhouse', 'apartment'));
+rowBlock(12.9650, 77.5245, 12.9545, 77.5360, homeRow('jhouse', 'jhouse', 'apartment'));
+rowBlock(12.9540, 77.5385, 12.9420, 77.5555, homeRow('jhouse', 'mhouse', 'apartment'));
+rowBlock(12.9530, 77.5245, 12.9420, 77.5360, homeRow('mhouse', 'jhouse'));
 // Majestic, Chickpet, K.R. Market: lodges, cinemas and bazaars.
 rowSouth(LATS.kg, 77.5765, 77.5803, shopRow('lodge', 'lodge', 'hotel', 'meals', 'travels', 'sweets', 'books'));
 rowNorth(LATS.kg, 77.5600, 77.5655, shopRow('lodge', 'hotel', 'lodge', 'meals', 'travels'));
@@ -477,7 +508,7 @@ rowNorth(12.9690, 77.5660, 77.5785, shopRow('bazaar', 'sarees', 'bangles', 'stee
 rowSouth(12.9690, 77.5660, 77.5740, shopRow('bazaar', 'textiles', 'silks', 'bangles', 'sarees', 'hotel', 'bags'), { half: 10 });
 rowBlock(12.9740, 77.5795, 12.9650, 77.5860, shopRow('bazaar', 'mobiles', 'hotel', 'textiles', 'bags', 'pharmacy', 'meals'));
 rowNorth(12.9610, 77.5755, 77.5830, shopRow('bazaar', 'flowers', 'bananas', 'spices', 'coconuts', 'fruits', 'flowers'));
-rowBlock(12.9880, 77.5450, 12.9600, 77.5650, homeRow('mhouse', 'jhouse', 'apartment'));
+rowBlock(12.9880, 77.5460, 12.9600, 77.5650, homeRow('mhouse', 'jhouse', 'apartment'));
 rowBlock(12.9560, 77.5560, 12.9480, 77.5735, homeRow('jhouse', 'mhouse'));
 rowBlock(12.9898, 77.5660, 12.9830, 77.5765, shopRow('lodge', 'lodge', 'hotel', 'meals', 'travels', 'lodge', 'mobiles', 'bags'));
 rowBlock(12.9752, 77.5660, 12.9725, 77.5790, shopRow('lodge', 'hotel', 'meals', 'sweets', 'travels', 'lodge', 'books'));
@@ -497,6 +528,7 @@ rowNorth(LATS.mg, 77.6075, 77.6180, shopRow('street', 'books', 'music', 'brewpub
 rowNorth(12.9728, 77.6015, 77.6078, shopRow('street', 'koshys', 'books', 'comics', 'cafe', 'pub', 'vinyl'), { half: 10 });
 rowSouth(12.9728, 77.6015, 77.6078, shopRow('street', 'pub', 'books', 'cafe', 'games'), { half: 10 });
 rowNorth(12.9690, 77.6010, 77.6120, shopRow('street', 'fashion', 'icecream', 'games', 'shoes', 'pub', 'books', 'cafe'));
+rowBlock(12.9700, 77.5885, 12.9655, 77.6005, homeRow('office', 'apartment', 'office'));
 rowBlock(12.9650, 77.5905, 12.9490, 77.6110, homeRow('jhouse', 'apartment', 'jhouse'));
 // Ulsoor and Indiranagar.
 rowBlock(12.9760, 77.6125, 12.9715, 77.6290, homeRow('jhouse', 'apartment'));
@@ -517,31 +549,12 @@ rowBlock(12.9455, 77.6070, 12.9380, 77.6420, homeRow('office', 'apartment', 'off
 rowBlock(12.9355, 77.6120, 12.9245, 77.6420, homeRow('apartment', 'jhouse', 'apartment', 'office'));
 rowBlock(12.9235, 77.5965, 12.9080, 77.6225, homeRow('apartment', 'jhouse', 'apartment'));
 rowBlock(12.9225, 77.6245, 12.9080, 77.6490, homeRow('office', 'apartment'));
-// Malgudi's streets of tiled houses.
-const malgudiRow = (xs, y) => xs.forEach(x => B_ROWS.push({ x0: x - 20, x1: x + 21, base: y, kinds: ['mhouse'] }));
-for (const y of [1350, 1450]) malgudiRow([60, 120, 180, 240, 300, 360, 480, 540, 600, 660], y);
-for (const y of [latY(LATS.kg) - 24, latY(LATS.kg) + 70]) malgudiRow([60, 120, 180, 240, 300, 360, 480, 540, 600, 660], y);
-malgudiRow([60, 120, 480, 600, 660], 2926);
-malgudiRow([60, 120, 180, 300, 480, 540, 660], 3020);
-
 // ---------------------------------------------------------------------------
 // People, animals and street furniture.
 // ---------------------------------------------------------------------------
 const B_NPCS = [
-  { name: 'Swami', x: 544, y: 2812, kid: true, skin: '#9a6a45', hair: '#1d1816', top: '#f1ead8', bottom: '#3a4a7a', cap: '#2b2220',
-    lines: ['Knights? In Malgudi? Rajam must see this!', "Don't tell Father I skipped arithmetic.", 'The Sarayu is best after school.'] },
-  { name: 'Rajam', x: 582, y: 2816, kid: true, skin: '#c48a5c', hair: '#2b2220', top: '#9fd6ef', bottom: '#2b2a33',
-    lines: ["My father is the Police Superintendent. He'd arrest that sword.", 'Swami says you are a lion. You look like a kitten.'] },
-  { name: 'Mani', x: 520, y: 2820, kid: true, skin: '#7a5236', hair: '#1d1816', top: '#d8433b', bottom: '#5a4a3a',
-    lines: ['I can throw a stone right across the Sarayu.', 'Want a ride on my cycle tyre?'] },
-  { name: 'Station Master', x: 270, y: RAIL_Y - 12, skin: '#9a6a45', hair: '#2b2220', top: '#f4f1ea', bottom: '#f4f1ea', cap: '#1d1816',
-    lines: ['The Malgudi Express goes to KSR. Hop on!', 'The train is on time. Mostly.', 'Mind the gap, little one.'] },
-  { name: 'Headmaster', x: 250, y: 2580, skin: '#c48a5c', hair: '#d9d2c4', top: '#f4f1ea', bottom: '#3a3530',
-    lines: ['Late again? Fifty lines: "I will not chase pigeons."', 'Arithmetic first, adventures later.'] },
-  { name: 'Granny', x: 736, y: 2550, skin: '#8a5a3a', hair: '#d9d2c4', top: '#2f8a3a', bottom: '#2f8a3a', saree: true,
-    lines: ['Washing clothes at the ghat since 1950.', "Don't fall in. The fish will laugh."] },
   { name: 'Porter', x: lonX(77.5694) - 60, y: RAIL_Y + 36, skin: '#7a5236', hair: '#1d1816', top: '#c0392b', bottom: '#c0392b',
-    lines: ['Luggage? I carry anything. Even a knight.', 'Malgudi Express, platform one!'] },
+    lines: ['Luggage? I carry anything. Even a knight.', 'Mysuru train, platform one!'] },
   { name: 'Conductor', ...nearB('busstand', -80, 22), skin: '#9a6a45', hair: '#1d1816', top: '#5b7fae', bottom: '#2b2a33',
     lines: ['Right, right! Hold on!', 'Change? Give exact change, please.'] },
   { name: 'Cubbon walker', ...geo(12.9762, 77.5900, 0, 2), area: { ...geo(12.9762, 77.5890, 0, -2), w: lonX(77.5960) - lonX(77.5890), h: 8 }, skin: '#c48a5c', hair: '#d9d2c4', top: '#ffffff', bottom: '#2b2a33',
@@ -584,6 +597,12 @@ const B_NPCS = [
     lines: ['The flower show is in January. Come back!', 'That clock? Made of flowers. Keeps time too.'] },
   { name: 'Malleswaram grandma', ...geo(12.9995, 77.5690, 0, 20), skin: '#8a5a3a', hair: '#d9d2c4', top: '#d8433b', bottom: '#d8433b', saree: true,
     lines: ['This street has had the best flowers since my wedding.', 'Malleswaram coffee is the real coffee.'] },
+  { name: 'Shopper', ...nearB('orion', 0, 16), area: { ...nearB('orion', -60, 12), w: 120, h: 8 }, skin: '#9a6a45', hair: '#2b2220', top: '#d8433b', bottom: '#2b2a33',
+    lines: ['Orion has a lake. A mall with a lake!', 'One more shop. Then home. Probably.'] },
+  { name: 'Guitarist', ...nearB('hardrock', -20, 16), skin: '#c48a5c', hair: '#2b2220', top: '#2b2220', bottom: '#2f4f8a',
+    lines: ['Rock on, little knight!', 'Bengaluru is the rock capital of India. Fight me.'] },
+  { name: 'Hanuman bhakta', ...nearB('temple', 30, 16), skin: '#7a5236', hair: '#1d1816', top: '#ee8b3a', bottom: '#f4f1ea',
+    lines: ['Jai Hanuman! The river was clean when I was small.', 'Tuesday and Saturday the line goes round the block.'] },
   { name: 'Darshini anna', ...nearB('darshini', 0, 8), skin: '#8a5a3a', hair: '#1d1816', top: '#ffffff', bottom: '#2f8a3a', shop: 'coffee',
     lines: ['One by two coffee? Free for knights.'] },
   { name: 'Baker', ...nearB('bakery', 0, 10), skin: '#c48a5c', hair: '#1d1816', top: '#ffffff', bottom: '#2f6db0', shop: 'cake',
@@ -610,6 +629,7 @@ const B_LOOKS = [['#c48a5c', '#1d1816', '#5b8ee0', '#2b2a33'], ['#9a6a45', '#2b2
   [LATS.mg, 77.6000, 77.6180, 18], [12.9822, 77.6065, 77.6115, 14], [LATS.kg, 77.5660, 77.5800, 18], [12.9690, 77.5665, 77.5785, 14],
   [12.9995, 77.5660, 77.5710, 14], [12.9365, 77.6120, 77.6260, 18], [12.9455, 77.5698, 77.5742, 14], [12.9838, 77.6010, 77.6110, 14],
   [12.9728, 77.6015, 77.6075, 14], [12.9330, 77.5810, 77.5990, 18], [12.9610, 77.5760, 77.5825, 14], [12.9270, 77.5810, 77.5990, 18],
+  [12.9660, 77.5250, 77.5440, 14], [12.9905, 77.5250, 77.5480, 18],
 ].forEach(([lat, lon0, lon1, dy], i) => {
   const [skin, hair, top, bottom, saree] = B_LOOKS[i % B_LOOKS.length];
   const a = geo(lat, lon0, 0, dy), w = lonX(lon1) - lonX(lon0);
@@ -621,20 +641,19 @@ const B_BENCHES = [
   [12.9765, 77.5920], [12.9755, 77.5935], [12.9718, 77.5915], [12.9762, 77.5955], [12.9500, 77.5835], [12.9500, 77.5875],
   [12.9470, 77.5870], [12.9810, 77.5895], [12.9780, 77.5835], [13.0060, 77.5770], [12.9800, 77.6160], [12.9450, 77.5720],
 ].map(([lat, lon]) => { const p = geo(lat, lon); return [p.x, p.y]; });
-const B_PIGEONS = [nearB('vidhana', 0, 10), { x: 330, y: RAIL_Y - 12 }, nearB('bandstand', 0, 14), nearB('complex', 0, 18), nearB('ksr', -60, 30), nearB('krmarket', 30, 18), nearB('bulltemple', -30, 14), nearB('stmarys', 30, 14), nearB('townhall', 0, 18)].map(p => [p.x, p.y]);
-const B_COWS = [[425, 1650, true], [600, 3350, true], [...Object.values(geo(12.9330, 77.5960, 0, 26)), false], [...Object.values(nearB('krmarket', 90, 50)), false], [...Object.values(geo(12.9995, 77.5600, 0, 24)), true], [...Object.values(geo(12.9300, 77.6200, 0, 20)), false], [...Object.values(nearB('bulltemple', -60, 30)), true]];
+const B_PIGEONS = [nearB('vidhana', 0, 10), nearB('iskcon', -20, 20), nearB('bandstand', 0, 14), nearB('complex', 0, 18), nearB('ksr', -60, 30), nearB('krmarket', 30, 18), nearB('bulltemple', -30, 14), nearB('stmarys', 30, 14), nearB('townhall', 0, 18)].map(p => [p.x, p.y]);
+const B_COWS = [[...Object.values(geo(12.9660, 77.5300, 0, 24)), true], [...Object.values(geo(12.9480, 77.5250, 0, 20)), true], [...Object.values(geo(12.9330, 77.5960, 0, 26)), false], [...Object.values(nearB('krmarket', 90, 50)), false], [...Object.values(geo(12.9995, 77.5600, 0, 24)), true], [...Object.values(geo(12.9300, 77.6200, 0, 20)), false], [...Object.values(nearB('bulltemple', -60, 30)), true]];
 const B_DOGS = [
   { ...geo(12.9330, 77.5815, 0, 20), w: lonX(77.5990) - lonX(77.5815), h: 16 },
   { ...geo(12.9365, 77.6130, 0, 18), w: lonX(77.6260) - lonX(77.6130), h: 12 },
   { ...geo(12.9822, 77.6065, 0, 12), w: lonX(77.6115) - lonX(77.6065), h: 10 },
 ];
-const B_CORACLE = { x: 800, y0: 2250, y1: 3550 };
-const B_CART = { x0: 60, x1: 700, y: latY(LATS.kg) + 24 };
 
 // Hawkers' stalls and carts scattered around the markets: [lat, lon, how many, spread in px].
 const B_STALL_SPOTS = [
   [12.9648, 77.5770, 14, 170], [12.9852, 77.6085, 10, 130], [12.9455, 77.5720, 6, 70], [12.9995, 77.5690, 6, 80],
   [12.9822, 77.6090, 6, 90], [12.9690, 77.5720, 8, 150], [12.9750, 77.5700, 6, 120], [12.9300, 77.5835, 5, 90],
+  [12.9660, 77.5340, 6, 100],
 ];
 
 // Auto stands: hop in for a ride anywhere (the meter is, of course, sleeping).
@@ -651,7 +670,9 @@ const B_AUTO_STANDS = [
   { name: 'Silk Board', ...geo(LATS.orr, 77.6235, -120, 26) },
   { name: 'Cantonment', ...geo(12.9915, 77.6000, 0, 24) },
   { name: 'Ulsoor', ...geo(12.9768, 77.6150, 0, 18) },
-  { name: 'Rajajinagar', ...geo(12.9975, 77.5510, 0, 24) },
+  { name: 'Rajajinagar', ...geo(12.9905, 77.5440, 0, 24) },
+  { name: 'Vijayanagar', ...geo(12.9660, 77.5300, 40, 18) },
+  { name: 'Yeshwanthpur', ...geo(13.0200, 77.5640, 0, 22) },
 ];
 
 // Hidden cats, Rod Hunt style: tucked away all over the city for sharp eyes.
@@ -659,7 +680,7 @@ const B_HIDDEN = [
   { name: 'the Palace cat', ...nearB('palace', 175, -10) },
   { name: 'the Cubbon Park cat', ...geo(12.9712, 77.5905) },
   { name: 'the temple cat', ...nearB('bulltemple', 56, -10) },
-  { name: 'the banyan cat', ...nearB('banyan', 30, -4) },
+  { name: 'the mall cat', ...nearB('orion', 84, -8) },
   { name: 'the library cat', ...nearB('library', -62, -8) },
   { name: 'the lake cat', ...geo(12.9822, 77.6190, 245, 30) },
   { name: 'the glass house cat', ...nearB('glasshouse', 112, -10) },
