@@ -138,16 +138,9 @@ function buildCity() {
     const d = B_DEPTH[k] || B_DEPTH[k.replace(/\d+$/, '')];
     if (d) sprites[k] = bExtrude(sprites[k], d[0], d[1] || 0);
   }
-  const shops = new Map();
-  for (const b of B_BUILDINGS) {
-    if (!b.shop) continue;
-    const key = b.shop.join();
-    if (!shops.has(key)) shops.set(key, bShopHouse(...b.shop));
-    b.img = shops.get(key);
-  }
   for (const b of B_BUILDINGS) if (!b.img) b.img = sprites[b.spr];
   BL.spr = sprites;
-  fillRows(sprites, shops);
+  fillRows(sprites, new Map());
   BL.treeSpr = {};
   for (const kind of Object.keys(B_TREES)) BL.treeSpr[kind] = [0, 1, 2].map(i => bTree(kind, i * 31 + kind.length * 7));
 
@@ -169,14 +162,24 @@ function buildCity() {
   // Hawkers' stalls round the markets, wherever there is open ground.
   const stalls = [0, 1, 2].map(i => B_ART.stall(i));
   const srnd = seeded(1928);
+  const standing = new Map();
+  for (const o of BL.statics) { const k = Math.floor(o.base / 64) * 1000 + Math.floor((o.x + o.w / 2) / 64); if (!standing.has(k)) standing.set(k, []); standing.get(k).push(o); }
+  const crowded = (x, y) => {
+    for (let gy = Math.floor((y - 14) / 64); gy <= Math.floor((y + 14) / 64); gy++) for (let gx = Math.floor((x - 24) / 64); gx <= Math.floor((x + 24) / 64); gx++)
+      for (const o of standing.get(gy * 1000 + gx) || []) if (Math.abs(o.x + o.w / 2 - x) < 24 && Math.abs(o.base - y) < 14) return true;
+    return false;
+  };
   for (const [lat, lon, n, spread] of B_STALL_SPOTS) {
     const c = geo(lat, lon);
     for (let i = 0, tries = 0; i < n && tries < n * 40; tries++) {
       const x = Math.round(c.x + (srnd() - 0.5) * spread * 2), y = Math.round(c.y + (srnd() - 0.2) * spread);
       if (bRoadAt(x, y, 10) || bSolid0(x, y) || bSolid0(x, y - 20) || bSolid0(x - 13, y) || bSolid0(x + 13, y)) continue;
-      if (BL.statics.some(o => Math.abs(o.x + o.w / 2 - x) < 24 && Math.abs(o.base - y) < 14)) continue;
+      if (crowded(x, y)) continue;
       if (B_POSTCARDS.some(p => !p.ride && Math.hypot(p.x - x, p.y - y) < 30) || Object.values(B_STATIONS).some(st => Math.hypot(st.x - x, st.y - y) < 36)) continue;
       addStatic(stalls[i % 3], x, y, { stall: true });
+      const o = BL.statics[BL.statics.length - 1], k = Math.floor(y / 64) * 1000 + Math.floor(x / 64);
+      if (!standing.has(k)) standing.set(k, []);
+      standing.get(k).push(o);
       i++;
     }
   }
@@ -236,7 +239,8 @@ function fillRows(sprites, shopCache) {
   for (const p of keep) { const k = Math.floor(p[1] / 128) * 1000 + Math.floor(p[0] / 128); if (!keepCells.has(k)) keepCells.set(k, []); keepCells.get(k).push(p); }
   const ells = [...B_LAKES.map(l => [l, l.rx + 22, l.ry + 20]), [B_STADIUM, B_STADIUM.rx + 16, B_STADIUM.ry + 16], [B_TRACK, B_TRACK.rx + 14, B_TRACK.ry + 14], [B_CLOCK, B_CLOCK.r + 14, B_CLOCK.r + 14], ...B_CIRCLES.map(c => [c, c.r + 12, c.r + 12])];
   const bands = [{ x: B_RAIL.x0, y: RAIL_Y - 34, w: B_RAIL.x1 - B_RAIL.x0, h: 80 }, ...B_PLATFORMS.map(p => ({ x: p.x - 4, y: p.y - 4, w: p.w + 8, h: p.h + 8 }))];
-  for (const L of Object.values(B_LINES)) for (const g of L.segs) if (!g.under) bands.push(g.axis === 'h' ? { x: Math.min(g.x0, g.x1) - 10, y: g.y0 - 48, w: Math.abs(g.x1 - g.x0) + 20, h: 64 } : { x: g.x0 - 24, y: Math.min(g.y0, g.y1) - 48, w: 48, h: Math.abs(g.y1 - g.y0) + 64 });
+  const decks = [];
+  for (const L of Object.values(B_LINES)) for (const g of L.segs) if (!g.under) decks.push(g, { x0: g.x0, y0: g.y0 - DECK, x1: g.x1, y1: g.y1 - DECK });
   const fits = c => {
     const fp = { x: c.x - c.fw / 2, y: c.y - c.fd, w: c.fw, h: c.fd };
     if (fp.x < 6 || fp.y < 6 || fp.x + fp.w > BW - 6 || c.y > BH - 6) return false;
@@ -251,6 +255,7 @@ function fillRows(sprites, shopCache) {
     for (const kx of [0, 0.5, 1]) for (const ky of [0, 0.5, 1]) grid9.push([fp.x + fp.w * kx, fp.y + fp.h * ky]);
     for (const [e, rx, ry] of ells) if (grid9.some(([x, y]) => inEll(x, y, e, rx, ry)) || inRect(e.x, e.y, fp)) return false;
     for (const b of bands) if (rectsHit(fp, b)) return false;
+    for (const g of decks) if (rectSegDist(fp, g) < 26) return false;
     for (let gy = Math.floor((fp.y - 40) / 128); gy <= Math.floor((c.y + 40) / 128); gy++) for (let gx = Math.floor((fp.x - 40) / 128); gx <= Math.floor((fp.x + fp.w + 40) / 128); gx++)
       for (const [x, y, r] of keepCells.get(gy * 1000 + gx) || []) if (x > fp.x - r && x < fp.x + fp.w + r && y > fp.y - r && y < c.y + r) return false;
     for (const g of B_RSEGS) {
@@ -423,7 +428,7 @@ function placeLamps() {
       const lx = Math.round(x + g.nx * off * side);
       let ly = Math.round(y + g.ny * off * side);
       if (g.axis === 'h' && ly > y) ly += 4;
-      if (bSolid0(lx, ly) || B_RSEGS.some(o => o.road !== r && segDist(lx, ly, o) < o.hw + 3)) return;
+      if (bSolid0(lx, ly) || B_RSEGS.some(o => o.road !== r && lx > o.bx0 - 3 && lx < o.bx1 + 3 && ly > o.by0 - 3 && ly < o.by1 + 3 && segDist(lx, ly, o) < o.hw + 3)) return;
       addStatic(img, lx, ly, { lamp: true });
       BL.lamps.push({ x: lx, y: ly - 24 });
     });
@@ -899,7 +904,7 @@ function updateVehicles(dt) {
         if (d < 0) d += L.to - L.from;
         gap = Math.min(gap, d - (B_VEH[o.type].len + def.len) / 2);
       }
-      if (!k.ride && Math.abs(k.x - L.seg.x0) + Math.abs(k.y - L.seg.y0) < L.seg.len + 80) {
+      if (!k.ride && segDist(k.x, k.y, L.seg) < 80) {
         const f = laneFrame(L, k.x, k.y);
         if (Math.abs(f.across) < def.wid / 2 + 5) {
           const d = (f.along - v.p) * L.sd - def.len / 2;
@@ -1098,7 +1103,7 @@ function bStamp(id) {
   if (BL.waypoint && BL.waypoint.id === id) BL.waypoint = null;
   if (SAVE.city.stamps.length === B_POSTCARDS.length) {
     addFish(100);
-    setTimeout(() => { BL.banner = { title: 'NAMMA BENGALURU!', sub: 'Every postcard found. +100 fish', t: 6 }; sfx.win(); }, 3500);
+    setTimeout(() => { if (scene === 'city' && BL.active) { BL.banner = { title: 'NAMMA BENGALURU!', sub: 'Every postcard found. +100 fish', t: 6 }; sfx.win(); } }, 3500);
   }
 }
 
@@ -1194,7 +1199,10 @@ function cityTick(dt) {
     sfx.pickup();
     bText(h.x, h.y - 16, 'Mrrp!', '#ffd0e0', 1.4);
     bToast(`YOU FOUND ${h.name.toUpperCase()}`, `Hidden cats: ${k.found.size} of ${B_HIDDEN.length}. +3 fish`, 2.8);
-    if (k.found.size === B_HIDDEN.length) setTimeout(() => { BL.banner = { title: 'EVERY CAT FOUND!', sub: 'Sharp eyes, little knight. +50 fish', t: 5 }; addFish(50); sfx.win(); }, 2500);
+    if (k.found.size === B_HIDDEN.length) {
+      addFish(50);
+      setTimeout(() => { if (scene === 'city' && BL.active) { BL.banner = { title: 'EVERY CAT FOUND!', sub: 'Sharp eyes, little knight. +50 fish', t: 5 }; sfx.win(); } }, 2500);
+    }
   }
 
   k.near = findNear();
@@ -1310,7 +1318,7 @@ function metroTip(from, to) {
   if (a === b || Math.hypot(to.x - from.x, to.y - from.y) < 1400) return null;
   if (Math.hypot(a.x - from.x, a.y - from.y) + Math.hypot(b.x - to.x, b.y - to.y) > Math.hypot(to.x - from.x, to.y - from.y) * 0.7) return null;
   const legs = routeLegs(a.id, b.id);
-  return `Metro: ${a.name} to ${b.name}${legs.length > 1 ? `, change at ${B_STATIONS[legs[0].b].name}` : ''}`;
+  return `Metro: ${a.name} to ${b.name}${legs.length > 1 ? `, change at ${legs.slice(0, -1).map(l => B_STATIONS[l.b].name).join(' and ')}` : ''}`;
 }
 const fmtDist = m => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m / 10) * 10} m`);
 
@@ -1321,7 +1329,7 @@ function mapLayout() {
   const top = 15, bottom = 13;
   const fit = Math.min((W - 12) / BW, (H - top - bottom) / BH);
   const s = fit * BL.mapZoom;
-  const side = (W - BW * fit) / 2 >= 64 ? Math.min(78, (W - BW * fit) / 2 - 4) : 0;
+  const side = (W - BW * fit) / 2 >= 68 ? Math.min(78, (W - BW * fit) / 2 - 8) : 0;
   const vw = Math.min(W - 12 - side * 2, BW * s), vh = Math.min(H - top - bottom, BH * s);
   const vx = (W - vw) / 2, vy = top + (H - top - bottom - vh) / 2;
   const focus = BL.mapFocus || BL.mapSel || BL;
@@ -1532,6 +1540,9 @@ const B_VIEW_INFO = {
   sketch: { name: 'MALGUDI SKETCH', sub: 'Ink and paper, like the old title cards', zoom: 2 },
   close: { name: 'CLOSE-UP', sub: 'Nose to nose with the city', zoom: 1 },
 };
+
+// v wrapped into 0..m, for scenery that scrolls past and repeats.
+const wrap = (v, m) => ((v % m) + m) % m;
 
 function bOnScreen(x, y, pad = 0) {
   const c = BL.cam;
@@ -2102,7 +2113,6 @@ function rideStops(seg) {
 // `y0`..`y1` is the band of screen the scene fills; returns name boards for the UI.
 function drawRideScene(vw, vh, horizon, nearY, s, dir, seg, steam) {
   const day = bDaylight();
-  const wrap = (v, m) => ((v % m) + m) % m;
   const top = lerpRgb([110, 168, 220], [28, 32, 64], day.dark / 0.7), bot = lerpRgb([214, 234, 242], [92, 70, 110], day.dark / 0.7);
   for (let y = 0; y < horizon; y++) {
     const v = (y / horizon) * 7;
@@ -2205,7 +2215,6 @@ function drawAutoSide(cx, y, rock, spin) {
 // underground station a bright tiled platform with its name board.
 function drawTunnelScene(vw, vh, horizon, nearY, s, dir, seg) {
   const L = B_LINES[seg.line];
-  const wrap = (v, m) => ((v % m) + m) % m;
   // Rings of the tunnel lining, cable trays and lamps, all rushing past at track speed.
   const top = Math.round(nearY * 0.38), mid = Math.round(nearY * 0.62);
   ctx.fillStyle = '#121418'; ctx.fillRect(0, 0, vw, nearY);
@@ -2242,7 +2251,6 @@ function drawRide(vw, vh) {
   const rock = R.speed > 20 ? (Math.floor(BL.t * 12) % 2) : 0;
   const L = R.kind === 'metro' ? B_LINES[seg.line] : null;
   const under = L && linePoint(L, R.s).under;
-  const wrap = (v, m) => ((v % m) + m) % m;
   R.layout = null;
   ctx.fillStyle = '#5d8a3e';
   ctx.fillRect(0, 0, vw, vh);
@@ -2312,7 +2320,6 @@ function drawCoach(vw, vh, R, seg, steam, dir, rock, under) {
   const horizon = Math.round(wy0 + (wy1 - wy0) * 0.62);
   R.boards = under ? drawTunnelScene(vw, vh, horizon, wy1 + 2, R.s, dir, seg) : drawRideScene(vw, vh, horizon, wy1 + 2, R.s, dir, seg, steam);
   // The parapet of the viaduct (or the rail-side fence) rushing past just below the window.
-  const wrap = (v, m) => ((v % m) + m) % m;
   if (under) {
     ctx.fillStyle = '#2a2e35'; ctx.fillRect(0, wy1 - 9, vw, 11);
   } else if (steam) {

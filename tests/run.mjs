@@ -197,6 +197,8 @@ async function suiteCity(browser) {
     for (const s of B_STEAM_STOPS) if (!reach(s.exit.x, s.exit.y)) out.unreachable.push(`steam stop ${s.name}`);
     for (const n of B_NPCS) if (!reach(n.x, n.y, 18)) out.unreachable.push(`${n.name} at ${n.x},${n.y}`);
     for (const c of BL.cows) if (!reach(c.x, c.y, 18)) out.unreachable.push(`cow at ${c.x},${c.y}`);
+    for (const h of B_HIDDEN) if (!reach(h.x, h.y, 14)) out.unreachable.push(`hidden cat "${h.name}" at ${h.x},${h.y}`);
+    for (const a of B_AUTO_STANDS) if (!reach(a.x, a.y, 10)) out.unreachable.push(`auto stand ${a.name} at ${a.x},${a.y}`);
     let fishSolid = 0, fishUnreach = 0;
     for (const f of BL.fishes) { if (bSolid(f.x, f.y)) fishSolid++; else if (!reach(f.x, f.y)) fishUnreach++; }
     if (fishSolid) out.misc.push(`${fishSolid} fish inside walls or water`);
