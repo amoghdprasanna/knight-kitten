@@ -88,7 +88,7 @@ const B_DISTRICTS = [
   { name: 'Rajajinagar', ...geoBox(13.0135, 77.545, 12.9870, 77.5655), ground: '#bdb391', mus: 'city', trees: [['rain', 3], ['coconut', 3], ['pink', 1]], verges: true, blurb: 'Wide streets, and ISKCON on its hill' },
   { name: 'Binnypet', ...geoBox(12.9870, 77.545, 12.9560, 77.5655), ground: '#c2b8a4', mus: 'city', trees: [['rain', 2], ['coconut', 2]], verges: true, blurb: 'Old mill lanes by the railway' },
   { name: 'Malleswaram', ...geoBox(13.0135, 77.5655, 12.9905, 77.5800), ground: '#b9b08a', mus: 'city', trees: [['rain', 4], ['coconut', 3], ['pink', 1]], verges: true, density: 9000, blurb: 'Old Bengaluru: temples, flowers, filter coffee' },
-  { name: 'Sankey Tank', ...geoBox(13.0135, 77.5715, 13.0030, 77.5830), ground: '#74a34a', mus: 'city', trees: [['rain', 4], ['pink', 2], ['gulmohar', 1]], density: 5000, blurb: "Colonel Sankey's lake, dug in 1882" },
+  { name: 'Sankey Tank', ...geoBox(13.0135, 77.5738, 13.0030, 77.5830), ground: '#74a34a', mus: 'city', trees: [['rain', 4], ['pink', 2], ['gulmohar', 1]], density: 5000, blurb: "Colonel Sankey's lake, dug in 1882" },
   { name: 'Sadashivanagar', ...geoBox(13.0135, 77.5830, 13.0030, 77.5985), ground: '#8db562', mus: 'city', trees: [['rain', 5], ['gulmohar', 1]], density: 6000, blurb: 'Big gardens, bigger trees' },
   { name: 'Bangalore Palace', ...geoBox(13.0030, 77.5880, 12.9915, 77.5985), ground: '#7fae54', mus: 'city', trees: [['rain', 5], ['royal', 1], ['gulmohar', 1]], density: 7000, blurb: "The Wodeyars' Tudor palace and its grounds" },
   { name: 'Vasanth Nagar', ...geoBox(13.0135, 77.5985, 12.9862, 77.6120), ground: '#c4b8a2', mus: 'city', trees: [['rain', 4], ['gulmohar', 1], ['pink', 1]], verges: true, blurb: 'Bungalows by the Cantonment station' },
@@ -376,7 +376,7 @@ landmark('mayohall', 12.9724, 77.6105, { fw: 118, fd: 40, mcol: '#f1e8d6', pc: {
 landmark('ksrcanopy', 12.9783, 77.5694, { dy: -255, fw: 0, fd: 0, mcol: null });
 landmark('ksr', 12.9783, 77.5694, { fw: 290, fd: 60, mcol: '#efe2c0', signs: [signAt('KSR BENGALURU CITY', 150, 46.5, 4)], pc: { name: 'KSR Bengaluru City', fact: "Krantivira Sangolli Rayanna station, the city's main railway terminus.", dy: 22 } });
 landmark('busstand', 12.9768, 77.5726, { dx: 60, dy: -4, fw: 270, fd: 50, mcol: '#c9c2b6', signs: [signAt('KEMPEGOWDA BUS STATION', 140, 6.5, 3.8)], pc: { name: 'Kempegowda Bus Station', fact: 'Majestic: buses to everywhere, all leaving at once.', dy: 20 } });
-landmark('freedom', 12.9744, 77.5828, { fw: 200, fd: 50, mcol: '#a89a80', signs: [signAt('FREEDOM PARK', 105, 62, 3.6)], pc: { name: 'Freedom Park', fact: 'Once the Central Jail, now a park for concerts and protests.' } });
+landmark('freedom', 12.9744, 77.5828, { fw: 200, fd: 50, mcol: '#a89a80', signs: [signAt('FREEDOM PARK', 105, 62, 3.6)], pc: { id: 'freedompark', name: 'Freedom Park', fact: 'Once the Central Jail, now a park for concerts and protests.' } });
 landmark('townhall', 12.9640, 77.5853, { dx: -26, fw: 160, fd: 50, mcol: '#ece6d8', signs: [signAt('TOWN HALL', 85, 21, 3.6, '#3a3530', null)], pc: { name: 'Town Hall', fact: 'Sir Puttanna Chetty Town Hall (1935), with its tall columns and wide steps.', r: 50 } });
 landmark('krmarket', 12.9648, 77.5770, { fw: 220, fd: 40, mcol: '#e3c06a', signs: [signAt('K.R. MARKET', 115, 7, 4.2)], pc: { name: 'K.R. Market', fact: 'City Market, built in 1928: flowers, fruit and plenty of noise.' } });
 landmark('fort', 12.9628, 77.5752, { dx: 60, dy: 40, fw: 96, fd: 24, mcol: '#a8a090', pc: { name: 'Bangalore Fort', fact: 'Kempegowda built it in mud in 1537; Hyder Ali rebuilt it in stone. The Delhi Gate still stands.', r: 50 } });
@@ -630,6 +630,12 @@ const B_DOGS = [
 ];
 const B_CORACLE = { x: 800, y0: 2250, y1: 3550 };
 const B_CART = { x0: 60, x1: 700, y: latY(LATS.kg) + 24 };
+
+// Hawkers' stalls and carts scattered around the markets: [lat, lon, how many, spread in px].
+const B_STALL_SPOTS = [
+  [12.9648, 77.5770, 14, 170], [12.9852, 77.6085, 10, 130], [12.9455, 77.5720, 6, 70], [12.9995, 77.5690, 6, 80],
+  [12.9822, 77.6090, 6, 90], [12.9690, 77.5720, 8, 150], [12.9750, 77.5700, 6, 120], [12.9300, 77.5835, 5, 90],
+];
 
 // Auto stands: hop in for a ride anywhere (the meter is, of course, sleeping).
 const B_AUTO_STANDS = [

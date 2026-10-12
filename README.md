@@ -17,22 +17,37 @@ controls appear automatically), and supports gamepads.
   four waves.
 - **Boss Rush**: all four bosses back to back against the clock.
 - **Daily**: the same seeded run for everyone each day, with two modifiers.
-- **Bengaluru**: free roam around a pocket-sized Bengaluru laid out after
-  the real city: Malleswaram and Sankey Tank, Bangalore Palace, the Race
-  Course and Holiday Inn, Majestic (KSR station, the bus station), Vidhana
-  Soudha and the High Court, Cubbon Park, Chinnaswamy Stadium, MG Road and
-  Brigade Road, Commercial Street, Ulsoor Lake, Indiranagar, K.R. Market,
-  the fort and Tipu Sultan's Summer Palace, Basavanagudi (Bull Temple,
-  Bugle Rock, Vidyarthi Bhavan), Lalbagh, Jayanagar's pink tabebuia
-  "cherry blossom" avenues, Koramangala and Silk Board. R.K. Narayan's
-  Malgudi lies across the river Sarayu, linked to KSR by the steam-hauled
-  Malgudi Express. Collect a postcard at each landmark, ride the Purple,
-  Green and Yellow lines of Namma Metro (change at Majestic or R.V. Road),
-  watching the real streets go by from a window seat or from outside, talk to
-  people, and watch day turn to night. Buildings are drawn in 3D: roofs, side
-  walls and, for Vidhana Soudha, a hand-built model with its domes, portico
-  and lion capital. The minimap and city map (M) let you set a destination;
-  V switches between street, drone, Malgudi sketch and close-up views.
+- **Bengaluru**: free roam around Bengaluru, laid out from the real latitude
+  and longitude of its landmarks, metro stations and main roads (mostly from
+  Wikipedia, OpenStreetMap-based listings and plus codes; a few are estimated
+  from nearby places). As on an illustrated tourist map, the old city is
+  drawn at a larger scale than the suburbs, but whatever is north or east of
+  something in Bengaluru is north or east of it here too (a few landmarks
+  are nudged to sit on the right side of their road), and roads slant where
+  the real ones do. North to south: ISKCON and Rajajinagar, Malleswaram
+  (Kadu Malleshwara, CTR) and Sankey Tank, Bangalore Palace, the Cantonment
+  station, Shivajinagar (St. Mary's Basilica, Russell Market, Commercial
+  Street), Ulsoor Lake and the Someshwara Temple, Indiranagar, the Race Course,
+  the Planetarium, Majestic (KSR, the bus station, the cinemas), Vidhana
+  Soudha, the High Court and Cubbon Park with its museums and library,
+  Chinnaswamy Stadium, MG Road, Brigade Road, St. Mark's Cathedral, Mayo Hall
+  and UB City, Chickpet, K.R. Market, the fort and Tipu Sultan's Summer
+  Palace, the Town Hall and MTR, Lalbagh, Basavanagudi (Bull Temple, Bugle
+  Rock, Gavi Gangadhareshwara, Vidyarthi Bhavan), Jayanagar's pink tabebuia
+  avenues, Koramangala and Silk Board. R.K. Narayan's Malgudi lies across the
+  river Sarayu, linked to KSR by the steam-hauled Malgudi Express.
+  Collect a postcard at each landmark. Ride the Purple, Green and Yellow lines
+  of Namma Metro on their real routes: they go underground through the old
+  city (City Railway Station to Cubbon Park, and Majestic to K.R. Market), and
+  the Yellow Line runs over the Silk Board double-decker. Take an
+  auto-rickshaw from a stand to wherever you are headed, look for fourteen
+  hidden cats, talk to people, and watch day turn to night. Buildings are
+  drawn in 3D: landmarks are modelled one by one (temples with their gopurams
+  and vimanas), and everyday shops, flats, houses and offices carry the
+  rooftop water tanks, stair rooms and washing lines of a Bengaluru skyline.
+  The city map (M) zooms in three steps, shows real distances and suggests a
+  metro route; V switches between street, drone, Malgudi sketch and close-up
+  views.
 
 Fish collected in any mode buy capes, bows and armor in the shop.
 
@@ -74,8 +89,9 @@ worker) only runs when served over http(s).
 - `world.js`: the arena world, time of day, critters
 - `arena.js`, `modes.js`: arena gameplay and its four modes
 - `journey.js`: Journey mode
-- `city-data.js`, `city-art.js`, `city.js`: Bengaluru mode (map layout and
-  text, pixel art, and the engine: traffic, trains, views, map, HUD)
+- `city-data.js`, `city-art.js`, `city.js`: Bengaluru mode (the map from real
+  coordinates and its text, pixel art, and the engine: traffic, trains,
+  autos, views, map, HUD)
 - `tests/`: the test pipeline
 - `vendor/matter.min.js`: [Matter.js](https://brm.io/matter-js/) 0.20.0 (MIT)
 
@@ -83,9 +99,10 @@ worker) only runs when served over http(s).
 
 `npm test` runs the game in headless Chrome and checks that it boots
 cleanly, that every mode survives several minutes of a bot playing it, that
-the Bengaluru map has no overlapping buildings, unreachable landmarks or
-signs that don't fit, that every metro and steam ride arrives, and that
-every player-facing string is spelled correctly. It also saves screenshots
+the Bengaluru map has no overlapping buildings, buildings hiding roads or
+each other, unreachable landmarks or signs that don't fit, that every metro
+and steam ride arrives, and that every player-facing string is spelled
+correctly. It also saves screenshots
 of key scenes to `tests/output/` for a human to look over.
 
 ```sh

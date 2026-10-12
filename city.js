@@ -166,6 +166,20 @@ function buildCity() {
     else addStatic(sprites[`stairs-${lid}`], s.x + 14, s.y - 2);
   }
   for (const a of B_AUTO_STANDS) addStatic(sprites.autostand, a.x - 16, a.y - 6);
+  // Hawkers' stalls round the markets, wherever there is open ground.
+  const stalls = [0, 1, 2].map(i => B_ART.stall(i));
+  const srnd = seeded(1928);
+  for (const [lat, lon, n, spread] of B_STALL_SPOTS) {
+    const c = geo(lat, lon);
+    for (let i = 0, tries = 0; i < n && tries < n * 40; tries++) {
+      const x = Math.round(c.x + (srnd() - 0.5) * spread * 2), y = Math.round(c.y + (srnd() - 0.2) * spread);
+      if (bRoadAt(x, y, 10) || bSolid0(x, y) || bSolid0(x, y - 20) || bSolid0(x - 13, y) || bSolid0(x + 13, y)) continue;
+      if (BL.statics.some(o => Math.abs(o.x + o.w / 2 - x) < 24 && Math.abs(o.base - y) < 14)) continue;
+      if (B_POSTCARDS.some(p => !p.ride && Math.hypot(p.x - x, p.y - y) < 30) || Object.values(B_STATIONS).some(st => Math.hypot(st.x - x, st.y - y) < 36)) continue;
+      addStatic(stalls[i % 3], x, y, { stall: true });
+      i++;
+    }
+  }
   for (const g of B_RSEGS) {
     if (g.axis !== 'v' || g.road.dirt) continue;
     const top = Math.min(g.y0, g.y1), bot = Math.max(g.y0, g.y1);
@@ -218,6 +232,8 @@ function fillRows(sprites, shopCache) {
     ...B_STEAM_STOPS.map(s => [s.exit.x, s.exit.y, 40]), ...B_NPCS.map(n => [n.x, n.y, 20]), ...B_AUTO_STANDS.map(a => [a.x, a.y, 40]),
     ...B_HIDDEN.map(h => [h.x, h.y, 16]), ...B_BENCHES.map(([x, y]) => [x, y, 14]), ...B_COWS.map(([x, y]) => [x, y, 22]),
   ];
+  const keepCells = new Map();
+  for (const p of keep) { const k = Math.floor(p[1] / 128) * 1000 + Math.floor(p[0] / 128); if (!keepCells.has(k)) keepCells.set(k, []); keepCells.get(k).push(p); }
   const ells = [...B_LAKES.map(l => [l, l.rx + 22, l.ry + 20]), [B_STADIUM, B_STADIUM.rx + 16, B_STADIUM.ry + 16], [B_TRACK, B_TRACK.rx + 14, B_TRACK.ry + 14], [B_CLOCK, B_CLOCK.r + 14, B_CLOCK.r + 14], ...B_CIRCLES.map(c => [c, c.r + 12, c.r + 12])];
   const bands = [{ x: B_RAIL.x0, y: RAIL_Y - 34, w: B_RAIL.x1 - B_RAIL.x0, h: 80 }, ...B_PLATFORMS.map(p => ({ x: p.x - 4, y: p.y - 4, w: p.w + 8, h: p.h + 8 }))];
   for (const L of Object.values(B_LINES)) for (const g of L.segs) if (!g.under) bands.push(g.axis === 'h' ? { x: Math.min(g.x0, g.x1) - 10, y: g.y0 - 48, w: Math.abs(g.x1 - g.x0) + 20, h: 64 } : { x: g.x0 - 24, y: Math.min(g.y0, g.y1) - 48, w: 48, h: Math.abs(g.y1 - g.y0) + 64 });
@@ -235,7 +251,8 @@ function fillRows(sprites, shopCache) {
     for (const kx of [0, 0.5, 1]) for (const ky of [0, 0.5, 1]) grid9.push([fp.x + fp.w * kx, fp.y + fp.h * ky]);
     for (const [e, rx, ry] of ells) if (grid9.some(([x, y]) => inEll(x, y, e, rx, ry)) || inRect(e.x, e.y, fp)) return false;
     for (const b of bands) if (rectsHit(fp, b)) return false;
-    for (const [x, y, r] of keep) if (x > fp.x - r && x < fp.x + fp.w + r && y > fp.y - r && y < c.y + r) return false;
+    for (let gy = Math.floor((fp.y - 40) / 128); gy <= Math.floor((c.y + 40) / 128); gy++) for (let gx = Math.floor((fp.x - 40) / 128); gx <= Math.floor((fp.x + fp.w + 40) / 128); gx++)
+      for (const [x, y, r] of keepCells.get(gy * 1000 + gx) || []) if (x > fp.x - r && x < fp.x + fp.w + r && y > fp.y - r && y < c.y + r) return false;
     for (const g of B_RSEGS) {
       if (g.bx1 < pr.x - 20 || g.bx0 > pr.x + pr.w + 20 || g.by1 < pr.y - 20 || g.by0 > c.y + 20) continue;
       if (rectSegDist(fp, g) < g.hw + 7) return false;
@@ -254,8 +271,8 @@ function fillRows(sprites, shopCache) {
     let b;
     if (kind.shop) {
       const [text, wall, board, awning] = kind.shop;
-      const key = [wall, board, awning, seed % 7, kind.style].join();
-      if (!shopCache.has(key)) shopCache.set(key, bShopHouse(wall, board, awning, seed % 7, kind.style));
+      const key = [wall, board, awning, seed % 3, kind.style].join();
+      if (!shopCache.has(key)) shopCache.set(key, bShopHouse(wall, board, awning, seed % 3, kind.style));
       b = { spr: 'shop', fw: 60, fd: 26, mcol: board, img: shopCache.get(key), signs: [{ anchor: 'sign', text, size: 4.2, color: '#ffffff' }] };
     } else {
       const v = { jhouse: 6, mhouse: 4, apartment: 3, office: 3 }[kind];
@@ -373,8 +390,21 @@ function placeTrees() {
   }
 }
 // Solid before the collision grid exists: buildings, water and the river.
+// Footprints are bucketed so each test only looks at buildings nearby.
 function bSolid0(x, y) {
-  for (const b of B_BUILDINGS) if (b.fw && x > b.x - b.fw / 2 - 2 && x < b.x + b.fw / 2 + 2 && y > b.y - b.fd - 2 && y < b.y + 4) return true;
+  if (!BL.fp || BL.fp.n !== B_BUILDINGS.length) {
+    BL.fp = { n: B_BUILDINGS.length, cells: new Map() };
+    for (const b of B_BUILDINGS) {
+      if (!b.fw) continue;
+      for (let gy = Math.floor((b.y - b.fd - 2) / 128); gy <= Math.floor((b.y + 4) / 128); gy++)
+        for (let gx = Math.floor((b.x - b.fw / 2 - 2) / 128); gx <= Math.floor((b.x + b.fw / 2 + 2) / 128); gx++) {
+          const k = gy * 1000 + gx;
+          if (!BL.fp.cells.has(k)) BL.fp.cells.set(k, []);
+          BL.fp.cells.get(k).push(b);
+        }
+    }
+  }
+  for (const b of BL.fp.cells.get(Math.floor(y / 128) * 1000 + Math.floor(x / 128)) || []) if (x > b.x - b.fw / 2 - 2 && x < b.x + b.fw / 2 + 2 && y > b.y - b.fd - 2 && y < b.y + 4) return true;
   return B_LAKES.some(l => inEll(x, y, l, l.rx + 4, l.ry + 4)) || bInRiver(x, y);
 }
 
@@ -1305,7 +1335,7 @@ window.addEventListener('pointerdown', e => {
   const rc = uiCanvas.getBoundingClientRect();
   const gx = (e.clientX - rc.left) / rc.width * W, gy = (e.clientY - rc.top) / rc.height * H;
   if (BL.ride && BL.ride.phase === 'pick') {
-    const hit = (BL.ride.hits || []).find(h => Math.abs(gx - h.x) < 22 && Math.abs(gy - h.y) < 4.5);
+    const hit = (BL.ride.hits || []).find(h => Math.abs(gx - h.x) < h.hw && Math.abs(gy - h.y) < h.hh);
     if (hit) { BL.ride.sel = hit.sel; confirmRide(); }
     return;
   }
@@ -2615,7 +2645,7 @@ function drawCityMap() {
     return true;
   };
   const lab = z > 2 ? 4.6 : z > 1 ? 4.2 : 3.4;
-  for (const t of mapTargets()) { const x = M.X(t.x), y = M.Y(t.y); if (on(x, y, 6)) placed.push({ x: x - 3, y: y - 3, w: 6, h: 6 }); }
+  if (z > 1) for (const t of mapTargets()) { const x = M.X(t.x), y = M.Y(t.y); if (on(x, y, 6)) placed.push({ x: x - 3, y: y - 3, w: 6, h: 6 }); }
   const cards = new Set(B_POSTCARDS.map(p => p.name.toLowerCase()));
   for (const d of [...B_DISTRICTS].slice(1).sort((a, b) => b.w * b.h - a.w * a.h)) {
     if (z > 1 && cards.has(d.name.toLowerCase())) continue;
@@ -2698,23 +2728,26 @@ function drawCityMap() {
 function rideUI() {
   const R = BL.ride;
   if (R.phase === 'pick') {
-    const w = Math.min(250, W - 8), h = Math.min(132, H - 6), x = W / 2 - w / 2, y = H / 2 - h / 2;
+    // Three columns, one per line, spaced to fit the longest line on any screen.
+    const most = Math.max(...B_COLS.map(l => B_LINES[l].stations.length));
+    const w = Math.min(272, W - 8), h = Math.min(H - 6, 50 + most * 9), x = W / 2 - w / 2, y = H / 2 - h / 2;
+    const colW = (w - 10) / 3, gap = Math.min(9, (h - 44) / (most - 1)), size = Math.min(4.3, gap * 0.62 + 0.6);
     ubox(x, y, w, h, 'rgba(29,24,22,0.95)');
     cut('NAMMA METRO', W / 2, y + 4, { size: 7, color: '#ffd25e', align: 'center', font: TITLE_FONT, weight: 400, stroke: 2.4 });
     cut(`From ${B_STATIONS[R.from].name}. Where to?`, W / 2, y + 13, { size: 5, color: '#d8d0c2', align: 'center' });
     R.hits = [];
     B_COLS.forEach((lid, ci) => {
-      const L = B_LINES[lid], cx = x + 7 + ci * (w - 10) / 3, y0 = y + 29;
-      const gap = (h - 42) / 9;
+      const L = B_LINES[lid], cx = x + 7 + ci * colW, y0 = y + 29;
       cut(L.name, cx, y0 - 8, { size: 5, color: L.light });
       urect(cx - 0.8, y0, 1.6, gap * (L.stations.length - 1), L.col);
-      L.stations.forEach((s, ri) => {
-        const sy = y0 + ri * gap, here = s.id === R.from, sel = R.sel.col === ci && R.sel.row === ri;
+      L.stations.forEach((st, ri) => {
+        const sy = y0 + ri * gap, here = st.id === R.from, sel = R.sel.col === ci && R.sel.row === ri;
+        const text = here ? `${st.name} (here)` : st.name, fit = size * Math.min(1, (colW - 9) / uwidth(text, size));
         urect(cx - 2.5, sy - 2.5, 5, 5, INK);
-        urect(cx - 1.8, sy - 1.8, 3.6, 3.6, here ? '#ff8a7a' : B_STATIONS[s.id].lines.length > 1 ? '#ffd25e' : '#ffffff');
-        cut(here ? `${s.name} (here)` : s.name, cx + 5, sy - 2.6, { size: 4.3, color: sel ? '#ffd25e' : here ? '#ff8a7a' : '#ffffff' });
+        urect(cx - 1.8, sy - 1.8, 3.6, 3.6, here ? '#ff8a7a' : B_STATIONS[st.id].lines.length > 1 ? '#ffd25e' : '#ffffff');
+        cut(text, cx + 5, sy - fit * 0.6, { size: fit, color: sel ? '#ffd25e' : here ? '#ff8a7a' : '#ffffff' });
         if (sel) drawArrow(cx - 7, sy, 0);
-        R.hits.push({ x: cx + 22, y: sy, sel: { col: ci, row: ri } });
+        R.hits.push({ x: cx + colW / 2 - 4, y: sy, hw: colW / 2, hh: gap / 2, sel: { col: ci, row: ri } });
       });
     });
     if (input.mode === 'touch') cut('Tap a station. II to cancel.', W / 2, y + h - 8, { size: 4.6, color: '#d8d0c2', align: 'center' });

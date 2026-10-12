@@ -265,9 +265,23 @@ async function suiteCity(browser) {
       if (Math.hypot(BL.x - to.x, BL.y - to.y) > 8) problems.push(`steam ride from ${s.name} ended at ${BL.x | 0},${BL.y | 0}`);
       n++;
     }
+    // Autos: from every stand to the postcard farthest from it.
+    for (const a of B_AUTO_STANDS) {
+      const pc = B_POSTCARDS.filter(p => !p.ride).sort((p, q) => Math.hypot(q.x - a.x, q.y - a.y) - Math.hypot(p.x - a.x, p.y - a.y))[0];
+      BL.ride = null; BL.mapOpen = false; BL.x = a.x; BL.y = a.y; BL.waypoint = { id: pc.id, name: pc.name, x: pc.x, y: pc.y };
+      cityTick(1 / 60); consumeInput();
+      if (!BL.near || BL.near.kind !== 'auto') { problems.push(`no auto prompt at the ${a.name} stand`); continue; }
+      input.pressed.jump = true; cityTick(1 / 60); consumeInput();
+      if (!BL.ride) { problems.push(`no auto from ${a.name}`); continue; }
+      runRide();
+      if (BL.ride) problems.push(`auto from ${a.name} to ${pc.name} never arrived`);
+      else if (Math.hypot(BL.x - pc.x, BL.y - pc.y) > 140) problems.push(`auto from ${a.name} to ${pc.name} stopped ${Math.hypot(BL.x - pc.x, BL.y - pc.y) | 0}px short`);
+      else if (bSolid(BL.x, BL.y)) problems.push(`auto from ${a.name} left the kitten inside something at ${BL.x | 0},${BL.y | 0}`);
+      n++;
+    }
     return { problems, n, stamps: SAVE.city.stamps };
   });
-  report('city', 'every metro and steam ride arrives', rides.problems, `${rides.n} rides`);
+  report('city', 'every metro, steam and auto ride arrives', rides.problems, `${rides.n} rides`);
 
   // Walk a bot to every postcard and check it gets stamped; render all views as it goes.
   const walk = await page.evaluate(quick => {

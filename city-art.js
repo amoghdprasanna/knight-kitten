@@ -1562,6 +1562,17 @@ const B_ART = {
     r('#1d1816', 4, 25, 5, 5); r('#1d1816', 17, 25, 5, 5); r('#5d6369', 5, 26, 3, 3); r('#5d6369', 18, 26, 3, 3);
   }),
 
+  // A hawker's stall under a big umbrella, piled with flowers, fruit or vegetables.
+  stall: (kind) => bcv(26, 26, (r) => {
+    const goods = [['#f2c94c', '#ee8b3a', '#ffffff', '#d8433b'], ['#d8433b', '#7cc35a', '#f2c94c', '#ee8b3a'], ['#3f8a3c', '#7cc35a', '#c3a0ec', '#d8433b']][kind % 3];
+    const top = ['#d8433b', '#2f6db0', '#2f8a3a'][kind % 3];
+    r('#3a3530', 12, 6, 2, 12);
+    for (let k = 0; k < 6; k++) { const half = 3 + k * 2; r('#1d1816', 13 - half - 1, k, half * 2 + 2, 1); r(k % 2 ? top : shade(top, 0.25), 13 - half, k, half * 2, 1); }
+    r('#1d1816', 2, 15, 22, 8); r('#8a5a3a', 3, 16, 20, 6); r('#b5824a', 3, 16, 20, 1);
+    for (let x = 4; x < 22; x += 2) r(goods[(x >> 1) % 4], x, 13 + ((x >> 1) % 2), 2, 3);
+    r('#1d1816', 4, 22, 3, 4); r('#1d1816', 19, 22, 3, 4);
+  }),
+
   // A level-crossing barrier, raised.
   boom: () => bcv(30, 24, (r) => {
     r('#2b2220', 2, 8, 4, 16); r('#d9d2c4', 3, 9, 2, 14);
