@@ -490,19 +490,44 @@ function buildGroundOps() {
     specks(dots);
   }
 
-  // Race course: dirt oval, striped infield, white rails.
+  // Race course (Bangalore Turf Club): a grass turf course between white
+  // rails, a sand training track inside it, a striped infield, furlong posts,
+  // and a sanded parade ring by the grandstand.
   const T = B_TRACK, irx = T.rx - T.w, iry = T.ry - T.w;
-  ell('#b98a5a', T, T.rx, T.ry);
-  op(T.x - irx, T.y - iry, T.x + irx, T.y + iry, c => {
-    for (let dy = -iry; dy <= iry; dy++) {
-      const half = Math.round(irx * Math.sqrt(1 - (dy / iry) ** 2));
-      c.fillStyle = Math.floor((dy + iry) / 8) % 2 ? '#7fb44f' : '#8cc05a';
+  ell('#4f8a35', T, T.rx + 6, T.ry + 6);
+  // Mowing stripes across the turf, as wedges from the centre (the inside is painted over).
+  ell('#5e9c3f', T, T.rx, T.ry);
+  op(T.x - T.rx, T.y - T.ry, T.x + T.rx, T.y + T.ry, c => {
+    const n = 76;
+    for (let k = 0; k < n; k += 2) {
+      const a0 = k / n * Math.PI * 2, a1 = (k + 1) / n * Math.PI * 2;
+      polyFill(c, [[T.x, T.y], [T.x + Math.cos(a0) * (T.rx + 1), T.y + Math.sin(a0) * (T.ry + 1)], [T.x + Math.cos(a1) * (T.rx + 1), T.y + Math.sin(a1) * (T.ry + 1)]], '#69a747');
+    }
+  });
+  ring('#4f8a35', T, T.rx + 2, T.ry + 2);
+  ell('#c9a97a', T, irx - 1, iry - 1);
+  const harrow = [];
+  for (let a = 0; a < Math.PI * 2; a += 0.012) for (const k of [3, 6, 9]) harrow.push([Math.round(T.x + Math.cos(a) * (irx - k)), Math.round(T.y + Math.sin(a) * (iry - k)), 1, 1, '#b8956a']);
+  specks(harrow);
+  op(T.x - irx + 12, T.y - iry + 12, T.x + irx - 12, T.y + iry - 12, c => {
+    const ax = irx - 13, ay = iry - 13;
+    for (let dy = -ay; dy <= ay; dy++) {
+      const half = Math.round(ax * Math.sqrt(1 - (dy / ay) ** 2));
+      c.fillStyle = Math.floor((dy + ay) / 8) % 2 ? '#7fb44f' : '#8cc05a';
       c.fillRect(T.x - half, T.y + dy, half * 2 + 1, 1);
     }
   });
-  ring('#f4f1ea', T, T.rx, T.ry);
-  ring('#f4f1ea', T, irx, iry);
-  rect('#f4f1ea', T.x + 60, T.y + iry, 2, T.w);
+  for (const [rx, ry] of [[T.rx, T.ry], [T.rx + 1, T.ry + 1], [irx, iry], [irx + 1, iry + 1], [irx - 12, iry - 12]]) ring('#f4f1ea', T, rx, ry);
+  const posts = [];
+  for (let a = 0; a < Math.PI * 2; a += 0.05) posts.push([Math.round(T.x + Math.cos(a) * (T.rx + 2)), Math.round(T.y + Math.sin(a) * (T.ry + 2)), 1, 2, '#8a857a']);
+  for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2; const x = Math.round(T.x + Math.cos(a) * (T.rx + 4)), y = Math.round(T.y + Math.sin(a) * (T.ry + 4)); posts.push([x, y - 5, 2, 3, '#d8433b'], [x, y - 2, 2, 3, '#ffffff']); }
+  specks(posts);
+  // The finishing line across the home straight.
+  rect('#ffffff', T.x + 50, T.y + iry, 2, T.w);
+  // Parade ring, where the horses are shown before a race.
+  const pr = { x: T.x - T.rx + 30, y: T.y + T.ry + 52 };
+  ell('#4f8a35', pr, 40, 22); ell('#d9c39a', pr, 34, 17); ell('#7fb44f', pr, 22, 9);
+  ring('#f4f1ea', pr, 35, 18);
 
   // Chinnaswamy: tiers in red and gold, green field, the pitch, the gate.
   const S = B_STADIUM;
@@ -773,6 +798,33 @@ const B_LANES = (() => {
   return out;
 })();
 
+// Where each lane can go at its far end: on round a bend in the same road,
+// straight across, or a turn onto a road that meets it there (no U-turns).
+// Lanes starting at the map edge are where new traffic comes in.
+(() => {
+  const edge = (x, y) => x < 12 || y < 12 || x > BW - 12 || y > BH - 12;
+  for (const L of B_LANES) {
+    const g = L.seg, hx = g.ux * L.sd, hy = g.uy * L.sd;
+    const E = L.sd > 0 ? { x: g.x1, y: g.y1 } : { x: g.x0, y: g.y0 };
+    const S = L.sd > 0 ? { x: g.x0, y: g.y0 } : { x: g.x1, y: g.y1 };
+    L.exits = [];
+    L.entry = edge(S.x, S.y);
+    L.edgeEnd = edge(E.x, E.y);
+    L.opposite = B_LANES.find(o => o.seg === g && o.sd === -L.sd);
+    for (const L2 of B_LANES) {
+      const g2 = L2.seg;
+      if (g2 === g) continue;
+      const t = clamp((E.x - g2.x0) * g2.ux + (E.y - g2.y0) * g2.uy, 0, g2.len);
+      if (Math.hypot(g2.x0 + g2.ux * t - E.x, g2.y0 + g2.uy * t - E.y) > Math.max(g.hw, g2.hw) + 10) continue;
+      // Join a lane only where there is road left ahead of it.
+      if (L2.sd > 0 ? g2.len - t < 24 : t < 24) continue;
+      const dot = hx * g2.ux * L2.sd + hy * g2.uy * L2.sd;
+      if (dot < -0.5) continue;
+      L.exits.push({ lane: L2, p: t, w: g2.road === g.road && dot > 0.5 ? 8 : dot > 0.8 ? 4 : 1 });
+    }
+  }
+})();
+
 // A point on a lane's centre line, `p` along its road piece.
 function laneXY(L, p) {
   const g = L.seg;
@@ -793,11 +845,12 @@ function resetCityLife() {
     lane.cars = [];
     const span = lane.to - lane.from;
     if (span < 90) continue;
-    const n = Math.max(1, Math.round(span / 340));
+    // Evenly spaced along the lane so no two start on top of each other.
+    const n = Math.max(1, Math.floor(span / 320));
     for (let i = 0; i < n; i++) {
       const type = types[Math.floor(rnd() * types.length)];
       const def = B_VEH[type];
-      const v = { lane, type, p: lane.from + (i + 0.2 + rnd() * 0.5) * span / n, v: def.vmax, vmax: def.vmax * (0.85 + rnd() * 0.3), honkCd: 0, col: cols[type] ? cols[type][Math.floor(rnd() * cols[type].length)] : null };
+      const v = { lane, type, p: lane.from + (i + 0.3 + rnd() * 0.4) * span / n, v: def.vmax * 0.6, vmax: def.vmax * (0.85 + rnd() * 0.3), honkCd: 0, col: cols[type] ? cols[type][Math.floor(rnd() * cols[type].length)] : null };
       BL.vehicles.push(v);
       lane.cars.push(v);
     }
@@ -810,7 +863,7 @@ function resetCityLife() {
     BL.trains.push({ line: id, s: st[mid].s, dir: 1, next: mid + 1, state: 'dwell', t: 8, v: 0 });
   }
   BL.train = { x: -300, dir: 1, state: 'away', t: 4, v: 0 };
-  BL.horses = [0, 1, 2, 3, 4].map(i => ({ a: i * 0.35, v: 0.3 + i * 0.012, lane: i % 3, col: ['#6b4a32', '#3a2618', '#8a6a4a', '#d9d2c4', '#2b2220'][i], silk: ['#d8433b', '#f2c94c', '#5b8ee0', '#7cc35a', '#c3a0ec'][i] }));
+  BL.horses = [0, 1, 2, 3, 4, 5, 6, 7].map(i => ({ a: 0.6 - i * 0.07 - (i % 2) * 0.03, v: 0.3 + (i % 4) * 0.01, lane: i % 3, col: ['#6b4a32', '#3a2618', '#8a6a4a', '#d9d2c4', '#2b2220', '#7a4a2a', '#4a3020', '#9a7a5a'][i], silk: ['#d8433b', '#f2c94c', '#5b8ee0', '#7cc35a', '#c3a0ec', '#ffffff', '#ee8b3a', '#2f6db0'][i] }));
   BL.ducks = [];
   for (const l of B_LAKES) for (let i = 0; i < Math.round(l.rx / 30); i++) BL.ducks.push({ lake: l, x: l.x + (rnd() - 0.5) * l.rx, y: l.y + (rnd() - 0.5) * l.ry, vx: 0, vy: 0, t: rnd() * 5, white: i % 3 === 0 });
   BL.boats = [0, 1, 2].map(i => ({ a: i * 2.1, v: 0.05 + i * 0.01, col: ['#f2c94c', '#d8433b', '#ffffff'][i] }));
@@ -858,42 +911,79 @@ function vehPos(v) {
   return { x, y };
 }
 
+// Is there room on a lane around `p`?
+function bLaneClear(L, p, room, self) {
+  return !L.cars.some(o => o !== self && Math.abs(o.p - p) < room + B_VEH[o.type].len / 2);
+}
+
+function bMoveToLane(v, L2, p) {
+  const L = v.lane;
+  L.cars.splice(L.cars.indexOf(v), 1);
+  L2.cars.push(v);
+  v.lane = L2;
+  v.p = p;
+  v.next = null;
+}
+
+// A car that drove off the edge of the map comes back in somewhere the camera can't see.
+function bRespawn(v) {
+  const entries = BL.entryLanes || (BL.entryLanes = B_LANES.filter(L => L.entry && L.to - L.from > 90));
+  for (let tries = 0; tries < 12; tries++) {
+    const L = entries[Math.floor(Math.random() * entries.length)];
+    const p = L.sd > 0 ? L.from - 30 : L.to + 30;
+    const q = laneXY(L, p);
+    if (bOnScreen(q.x, q.y, 60) || !bLaneClear(L, p, 50, v)) continue;
+    bMoveToLane(v, L, p);
+    v.v = v.vmax * 0.8;
+    return;
+  }
+}
+
 function updateVehicles(dt) {
   const k = BL;
-  for (const L of B_LANES) {
-    for (const v of L.cars) {
-      const def = B_VEH[v.type];
-      let gap = Infinity;
-      for (const o of L.cars) {
-        if (o === v) continue;
-        let d = (o.p - v.p) * L.sd;
-        if (d < 0) d += L.to - L.from;
-        gap = Math.min(gap, d - (B_VEH[o.type].len + def.len) / 2);
-      }
-      if (!k.ride && segDist(k.x, k.y, L.seg) < 80) {
-        const f = laneFrame(L, k.x, k.y);
-        if (Math.abs(f.across) < def.wid / 2 + 5) {
-          const d = (f.along - v.p) * L.sd - def.len / 2;
-          if (d > -def.len && d < 46) {
-            gap = Math.min(gap, Math.max(0, d - 4));
-            if (v.honkCd <= 0 && d < 40) {
-              v.honkCd = 2.5 + Math.random() * 2;
-              bHorn(v.type);
-              const p = vehPos(v);
-              bText(p.x, p.y - 18, pick(B_HONKS), '#ffe08a');
-            }
+  for (const v of k.vehicles) {
+    const L = v.lane, def = B_VEH[v.type];
+    // The nearest car ahead in this lane.
+    let gap = Infinity;
+    for (const o of L.cars) {
+      if (o === v) continue;
+      const d = (o.p - v.p) * L.sd;
+      if (d > 0) gap = Math.min(gap, d - (B_VEH[o.type].len + def.len) / 2);
+    }
+    const end = L.sd > 0 ? L.to : L.from, toEnd = (end - v.p) * L.sd;
+    // Choose where to go at the end of this road piece, and wait if it's blocked.
+    if (!v.next && L.exits.length && toEnd < 140) {
+      let r = Math.random() * L.exits.reduce((a, e) => a + e.w, 0);
+      v.next = L.exits.find(e => (r -= e.w) <= 0) || L.exits[0];
+    }
+    if (v.next && toEnd < 40 && !bLaneClear(v.next.lane, v.next.p, def.len, v)) gap = Math.min(gap, Math.max(0, toEnd - def.len / 2));
+    if (!k.ride && segDist(k.x, k.y, L.seg) < 80) {
+      const f = laneFrame(L, k.x, k.y);
+      if (Math.abs(f.across) < def.wid / 2 + 5) {
+        const d = (f.along - v.p) * L.sd - def.len / 2;
+        if (d > -def.len && d < 46) {
+          gap = Math.min(gap, Math.max(0, d - 4));
+          if (v.honkCd <= 0 && d < 40) {
+            v.honkCd = 2.5 + Math.random() * 2;
+            bHorn(v.type);
+            const p = vehPos(v);
+            bText(p.x, p.y - 18, pick(B_HONKS), '#ffe08a');
           }
         }
       }
-      v.honkCd -= dt;
-      const pos = vehPos(v);
-      const vmax = inRect(pos.x, pos.y, B_JAM) ? 7 : v.vmax;
-      const target = gap < 6 ? 0 : gap < 36 ? vmax * (gap - 6) / 30 : vmax;
-      v.v = v.v < target ? Math.min(target, v.v + 40 * dt) : Math.max(target, v.v - 160 * dt);
-      v.p += v.v * L.sd * dt;
-      if (L.sd > 0 && v.p > L.to) v.p = L.from;
-      if (L.sd < 0 && v.p < L.from) v.p = L.to;
     }
+    v.honkCd -= dt;
+    const pos = vehPos(v);
+    const vmax = inRect(pos.x, pos.y, B_JAM) ? 7 : v.vmax;
+    const target = gap < 6 ? 0 : gap < 36 ? vmax * (gap - 6) / 30 : vmax;
+    v.v = v.v < target ? Math.min(target, v.v + 40 * dt) : Math.max(target, v.v - 160 * dt);
+    v.p += v.v * L.sd * dt;
+    if ((v.p - end) * L.sd < 0) continue;
+    // Only move on when there's room; otherwise wait at the end of the road.
+    const hold = () => { v.p = end; v.v = 0; };
+    if (v.next) { if (bLaneClear(v.next.lane, v.next.p, def.len, v)) bMoveToLane(v, v.next.lane, v.next.p); else hold(); }
+    else if (!L.edgeEnd) { if (bLaneClear(L.opposite, v.p, def.len, v)) bMoveToLane(v, L.opposite, v.p); else hold(); }   // a dead end: turn round
+    else if ((v.p - end) * L.sd > 60) bRespawn(v);                     // off the map
   }
 }
 
@@ -1557,8 +1647,9 @@ function cityDraw() {
   for (const dg of k.dogs) if (bOnScreen(dg.x, dg.y, 20)) list.push({ y: dg.y, dog: dg });
   if (bOnScreen(B_TRACK.x, B_TRACK.y, 300)) {
     for (const h of k.horses) {
-      const x = B_TRACK.x + Math.cos(h.a) * (B_TRACK.rx - 8 - h.lane * 5), y = B_TRACK.y + Math.sin(h.a) * (B_TRACK.ry - 8 - h.lane * 4);
-      if (bOnScreen(x, y, 20)) list.push({ y, horse: h, x, dir: -Math.sin(h.a) >= 0 ? 1 : -1 });
+      const x = B_TRACK.x + Math.cos(h.a) * (B_TRACK.rx - 6 - h.lane * 5), y = B_TRACK.y + Math.sin(h.a) * (B_TRACK.ry - 6 - h.lane * 4);
+      // Heading round the oval, for which way the horse faces.
+      if (bOnScreen(x, y, 20)) list.push({ y, horse: h, x, hx: -Math.sin(h.a) * B_TRACK.rx, hy: Math.cos(h.a) * B_TRACK.ry });
     }
   }
   if (k.train.state !== 'away' && bOnScreen(k.train.x - k.train.dir * 140, RAIL_Y, 200)) list.push({ y: RAIL_Y + 8, rail: true });
@@ -1581,7 +1672,7 @@ function cityDraw() {
     } else if (it.v) drawVehicle(it.v, it.p);
     else if (it.n) drawPerson(it.n.x, it.n.y, it.n);
     else if (it.cow) drawCow(it.cow);
-    else if (it.horse) drawHorse(it.x, it.y, it.horse, it.dir);
+    else if (it.horse) drawHorse(it.x, it.y, it.horse, it.hx, it.hy);
     else if (it.dog) drawDog(it.dog);
     else if (it.rail) drawRailTrain(BL.train.x, RAIL_Y + 6, BL.train.dir, BL.train.x);
     else if (it.cat) drawHiddenCat(it.cat);
@@ -1733,15 +1824,30 @@ function drawCow(c) {
   ctx.fillStyle = '#2b2220'; ctx.fillRect(x - 10, y - 11, 1, 6);
 }
 
-function drawHorse(x, y, h, dir) {
-  const X = Math.round(x), Y = Math.round(y), g = Math.floor(BL.t * 10 + h.lane) % 2;
+// A racehorse and jockey: side-on along the straights, head-on or from
+// behind round the bends, depending on which way it's running.
+function drawHorse(x, y, h, hx, hy) {
+  const X = Math.round(x), Y = Math.round(y), g = Math.floor(BL.t * 12 + h.lane) % 2;
   drawShadow(X, Y, 14, 0.22);
-  const R = (v, yy, w, hh, col) => { ctx.fillStyle = col; ctx.fillRect(dir > 0 ? X + v : X - v - w + 1, yy, w, hh); };
-  R(-7, Y - 11, 14, 6, '#2b2220'); R(-6, Y - 10, 12, 4, h.col);
-  R(5, Y - 15, 4, 6, '#2b2220'); R(6, Y - 14, 3, 4, h.col); R(8, Y - 13, 2, 2, h.col);
-  for (const [lx, ph] of [[-5, g], [-3, 1 - g], [3, g], [5, 1 - g]]) R(lx + (ph ? 1 : -1), Y - 5, 1, 5, '#2b2220');
-  R(-8, Y - 10, 2, 4, '#2b2220');
-  R(-2, Y - 17, 4, 6, '#2b2220'); R(-1, Y - 16, 2, 4, h.silk); R(-1, Y - 18, 2, 2, h.silk);
+  const R = (xx, yy, w, hh, col) => { ctx.fillStyle = col; ctx.fillRect(xx, yy, w, hh); };
+  if (Math.abs(hx) >= Math.abs(hy) * 0.7) {
+    const dir = hx >= 0 ? 1 : -1;
+    const S = (v, yy, w, hh, col) => R(dir > 0 ? X + v : X - v - w + 1, yy, w, hh, col);
+    const stretch = g ? 1 : 0;
+    S(-7, Y - 11, 14, 6, '#2b2220'); S(-6, Y - 10, 12, 4, h.col);
+    S(5, Y - 15 + stretch, 4, 6, '#2b2220'); S(6, Y - 14 + stretch, 3, 4, h.col); S(8, Y - 13 + stretch, 3, 2, h.col);
+    for (const [lx, ph] of [[-6, g], [-4, 1 - g], [3, g], [5, 1 - g]]) S(lx + (ph ? 2 : -1), Y - 5, 1, 5, '#2b2220');
+    S(-9, Y - 10 + stretch, 3, 3, '#2b2220');
+    S(-2, Y - 17, 4, 6, '#2b2220'); S(-1, Y - 16, 2, 4, h.silk); S(-1, Y - 18, 3, 2, h.silk); S(1, Y - 15, 4, 1, h.silk);
+    return;
+  }
+  // Running towards us (front) or away (back).
+  const toward = hy > 0;
+  R(X - 3, Y - 12, 7, 8, '#2b2220'); R(X - 2, Y - 11, 5, 6, h.col);
+  for (const [lx, ph] of [[-2, g], [2, 1 - g]]) R(X + lx, Y - 5 + (ph ? 0 : 1), 1, 5 - (ph ? 0 : 1), '#2b2220');
+  if (toward) { R(X - 1, Y - 16 + g, 3, 6, '#2b2220'); R(X, Y - 15 + g, 1, 4, h.col); R(X - 1, Y - 17 + g, 1, 2, '#2b2220'); R(X + 1, Y - 17 + g, 1, 2, '#2b2220'); }
+  else { R(X, Y - 7, 1, 4, '#2b2220'); R(X - 1, Y - 5, 3, 2, '#2b2220'); }
+  R(X - 2, Y - 18, 5, 6, '#2b2220'); R(X - 1, Y - 17, 3, 4, h.silk); R(X - 1, Y - 19, 3, 2, h.silk);
 }
 
 function drawDog(d) {
@@ -1776,37 +1882,72 @@ function drawRailTrain(cx, y, dir, phase) {
   for (const wx of [4, 14, 34, 44]) { R(ex + wx, y - 5, 6, 5, '#1d1816'); R(ex + wx + 1 + wheel, y - 4, 2, 2, '#8a8f96'); }
 }
 
+// A vehicle seen side-on, facing f (1 right, -1 left), wheels on the line y = Y.
+function drawVehSide(c, X, Y, type, col, f) {
+  const len = B_VEH[type].len, x0 = X - len / 2;
+  const FR = (dx, y, w, h, cl) => { c.fillStyle = cl; c.fillRect(f > 0 ? x0 + dx : x0 + len - dx - w, y, w, h); };
+  if (type === 'auto') {
+    FR(1, Y - 13, 15, 10, '#2b2220'); FR(2, Y - 12, 13, 4, '#f0c419'); FR(2, Y - 12, 13, 1, '#ffe27a');
+    FR(2, Y - 8, 13, 5, '#2e7d32'); FR(12, Y - 9, 4, 4, '#9cc4dc'); FR(9, Y - 9, 3, 5, '#1d1816');
+    FR(16, Y - 7, 2, 4, '#2b2220'); FR(16, Y - 6, 1, 1, '#fff3c8');
+    FR(1, Y - 3, 4, 3, '#1d1816'); FR(13, Y - 3, 4, 3, '#1d1816');
+  } else if (type === 'bus') {
+    FR(0, Y - 18, len, 15, '#2b2220'); FR(1, Y - 17, len - 2, 13, col); FR(1, Y - 17, len - 2, 1, shade(col, 0.25));
+    for (let wx = 3; wx < len - 8; wx += 6) FR(wx, Y - 15, 5, 5, '#9cc4dc');
+    FR(len - 6, Y - 16, 5, 8, '#9cc4dc'); FR(len - 13, Y - 9, 4, 6, '#2b2220');
+    FR(2, Y - 8, len - 4, 1, '#ffffff'); FR(len - 7, Y - 18, 6, 2, '#ee8b3a');
+    FR(4, Y - 4, 6, 4, '#1d1816'); FR(len - 12, Y - 4, 6, 4, '#1d1816');
+  } else if (type === 'car') {
+    FR(1, Y - 9, len - 2, 6, '#2b2220'); FR(2, Y - 8, len - 4, 4, col);
+    FR(6, Y - 13, 13, 5, '#2b2220'); FR(7, Y - 12, 11, 4, col); FR(8, Y - 12, 4, 3, '#9cc4dc'); FR(13, Y - 12, 4, 3, '#9cc4dc');
+    FR(len - 3, Y - 7, 2, 2, '#fff3c8'); FR(3, Y - 4, 5, 4, '#1d1816'); FR(len - 9, Y - 4, 5, 4, '#1d1816');
+  } else {
+    FR(1, Y - 6, 10, 3, '#2b2220'); FR(2, Y - 5, 8, 2, col); FR(1, Y - 3, 3, 3, '#1d1816'); FR(8, Y - 3, 3, 3, '#1d1816');
+    FR(3, Y - 12, 5, 6, '#2b2220'); FR(4, Y - 11, 3, 4, '#5b8ee0'); FR(4, Y - 14, 3, 3, '#9a6a45'); FR(3, Y - 15, 5, 2, '#d8433b');
+  }
+}
+
+// Side views cached as little images, to be drawn turned on slanting roads.
+const B_VEH_SPR = new Map();
+function vehSprite(type, col, f) {
+  const key = `${type}|${col}|${f}`;
+  let cv = B_VEH_SPR.get(key);
+  if (!cv) {
+    cv = document.createElement('canvas');
+    cv.width = B_VEH[type].len + 4;
+    cv.height = 22;
+    drawVehSide(cv.getContext('2d'), cv.width / 2, 21, type, col, f);
+    B_VEH_SPR.set(key, cv);
+  }
+  return cv;
+}
+
 function drawVehicle(v, p) {
-  const def = B_VEH[v.type], L = v.lane;
+  const def = B_VEH[v.type], L = v.lane, g = L.seg;
   const X = Math.round(p.x), Y = Math.round(p.y);
   const R = (x, y, w, h, col) => { ctx.fillStyle = col; ctx.fillRect(x, y, w, h); };
-  if (L.axis === 'h') {
-    const f = L.dir, len = def.len, x0 = X - len / 2;
-    const FR = (dx, y, w, h, col) => R(f > 0 ? x0 + dx : x0 + len - dx - w, y, w, h, col);
-    drawShadow(X, Y, len, 0.25);
-    if (v.type === 'auto') {
-      FR(1, Y - 13, 15, 10, '#2b2220'); FR(2, Y - 12, 13, 4, '#f0c419'); FR(2, Y - 12, 13, 1, '#ffe27a');
-      FR(2, Y - 8, 13, 5, '#2e7d32'); FR(12, Y - 9, 4, 4, '#9cc4dc'); FR(9, Y - 9, 3, 5, '#1d1816');
-      FR(16, Y - 7, 2, 4, '#2b2220'); FR(16, Y - 6, 1, 1, '#fff3c8');
-      FR(1, Y - 3, 4, 3, '#1d1816'); FR(13, Y - 3, 4, 3, '#1d1816');
-    } else if (v.type === 'bus') {
-      FR(0, Y - 18, len, 15, '#2b2220'); FR(1, Y - 17, len - 2, 13, v.col); FR(1, Y - 17, len - 2, 1, shade(v.col, 0.25));
-      for (let wx = 3; wx < len - 8; wx += 6) FR(wx, Y - 15, 5, 5, '#9cc4dc');
-      FR(len - 6, Y - 16, 5, 8, '#9cc4dc'); FR(len - 13, Y - 9, 4, 6, '#2b2220');
-      FR(2, Y - 8, len - 4, 1, '#ffffff'); FR(len - 7, Y - 18, 6, 2, '#ee8b3a');
-      FR(4, Y - 4, 6, 4, '#1d1816'); FR(len - 12, Y - 4, 6, 4, '#1d1816');
-    } else if (v.type === 'car') {
-      FR(1, Y - 9, len - 2, 6, '#2b2220'); FR(2, Y - 8, len - 4, 4, v.col);
-      FR(6, Y - 13, 13, 5, '#2b2220'); FR(7, Y - 12, 11, 4, v.col); FR(8, Y - 12, 4, 3, '#9cc4dc'); FR(13, Y - 12, 4, 3, '#9cc4dc');
-      FR(len - 3, Y - 7, 2, 2, '#fff3c8'); FR(3, Y - 4, 5, 4, '#1d1816'); FR(len - 9, Y - 4, 5, 4, '#1d1816');
-    } else {
-      FR(1, Y - 6, 10, 3, '#2b2220'); FR(2, Y - 5, 8, 2, v.col); FR(1, Y - 3, 3, 3, '#1d1816'); FR(8, Y - 3, 3, 3, '#1d1816');
-      drawPerson(f > 0 ? x0 + 5 : x0 + len - 5, Y - 4, { skin: '#9a6a45', hair: '#2b2220', top: '#5b8ee0', bottom: '#2b2a33', cap: '#d8433b', facing: f }, true);
-    }
+  // Which way it's heading decides the view: side-on, end-on, or turned to match a slanting road.
+  const hx = g.ux * L.sd, hy = g.uy * L.sd;
+  const off = Math.atan2(Math.abs(hy), Math.abs(hx));
+  if (off > 0.3 && off < 1.25) {
+    const f = hx >= 0 ? 1 : -1;
+    const turn = Math.atan2(hy, hx) - (f > 0 ? 0 : Math.PI);
+    const img = vehSprite(v.type, v.col, f);
+    drawShadow(X, Y, def.len * 0.8, 0.25);
+    ctx.save();
+    ctx.translate(X, Y);
+    ctx.rotate(Math.atan2(Math.sin(turn), Math.cos(turn)) * 0.85);
+    ctx.drawImage(img, -img.width / 2, -21);
+    ctx.restore();
+    return;
+  }
+  if (off <= 0.3) {
+    drawShadow(X, Y, def.len, 0.25);
+    drawVehSide(ctx, X, Y, v.type, v.col, hx >= 0 ? 1 : -1);
     return;
   }
   const w = def.wid, len = def.len, x0 = X - Math.floor(w / 2), y1 = Y, y0 = Y - len;
-  const front = L.dir > 0;
+  const front = hy > 0;
   drawShadow(X, Y, w + 2, 0.25);
   if (v.type === 'auto') {
     R(x0 - 1, y0 + 2, w + 2, len - 2, '#2b2220'); R(x0, y0 + 3, w, 7, '#f0c419'); R(x0, y0 + 3, w, 1, '#ffe27a');
@@ -2029,7 +2170,9 @@ function rideItems(seg) {
     if (st.lamp || (st.kind === 'bld' && B_SKIP_RIDE.includes(st.b.spr))) continue;
     const cx = st.x + (st.img.fw || st.w) / 2;
     const { s: along, d } = lineProject(L, cx, st.base);
-    if (d < 460 && d > 18) out.push({ img: st.img, along, d, tree: !!st.tree });
+    // Some landmarks have a side view for the train window (the stadium's bowl reads wrong side-on).
+    const img = (st.kind === 'bld' && BL.spr[`${st.b.spr}Side`]) || st.img;
+    if (d < 460 && d > 18) out.push({ img, along, d, tree: !!st.tree });
   }
   out.sort((a, b) => b.d - a.d);
   return (BL.rideCache[key] = out);
@@ -2045,7 +2188,7 @@ function rideSkyline(line) {
     if (st.lamp || (st.kind === 'bld' && B_SKIP_RIDE.includes(st.b.spr))) continue;
     const cx = st.x + (st.img.fw || st.w) / 2;
     const p = lineProject(L, cx, st.base);
-    if (st.kind === 'bld' && st.b.icon) { if (p.d < 1500) icons.push({ img: st.img, along: p.s, d: p.d, name: st.b.name || '' }); }
+    if (st.kind === 'bld' && st.b.icon) { if (p.d < 1500) icons.push({ img: BL.spr[`${st.b.spr}Side`] || st.img, along: p.s, d: p.d, name: st.b.name || '' }); }
     else if (p.d < 320 && p.d > 16) near.push({ img: st.img, along: p.s, d: p.d });
   }
   icons.sort((a, b) => b.d - a.d);

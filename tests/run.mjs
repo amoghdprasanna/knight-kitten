@@ -272,6 +272,35 @@ async function suiteCity(browser) {
   });
   report('city', 'every metro and auto ride arrives', rides.problems, `${rides.n} rides`);
 
+  // Traffic: cars must never jump or vanish where the camera can see them.
+  const traffic = await page.evaluate(() => {
+    const problems = [];
+    let turns = 0, respawns = 0;
+    BL.ride = null; BL.mapOpen = false;
+    const spots = B_LANES.filter(L => L.exits.length > 2).filter((_, i) => i % 23 === 0).slice(0, 6).map(L => laneXY(L, L.sd > 0 ? L.to : L.from));
+    for (const q0 of spots) {
+      BL.x = q0.x; BL.y = q0.y + 50; cityDraw();
+      const last = new Map(BL.vehicles.map(v => [v, { ...vehPos(v), lane: v.lane }]));
+      for (let i = 0; i < 60 * 40; i++) {
+        cityTick(1 / 60); consumeInput();
+        if (i % 20 === 0) cityDraw();
+        for (const v of BL.vehicles) {
+          const p = vehPos(v), q = last.get(v), d = Math.hypot(p.x - q.x, p.y - q.y);
+          if (q.lane !== v.lane) { if (d > 40) respawns++; else turns++; }
+          if (d > 40 && (bOnScreen(q.x, q.y, -8) || bOnScreen(p.x, p.y, -8)) && problems.length < 8) problems.push(`car jumped ${d | 0}px near ${q.x | 0},${q.y | 0} -> ${p.x | 0},${p.y | 0} on screen`);
+          last.set(v, { ...p, lane: v.lane });
+        }
+      }
+    }
+    let overlaps = 0;
+    for (const L of B_LANES) for (const a of L.cars) for (const b of L.cars) if (a !== b && Math.abs(a.p - b.p) < 4) overlaps++;
+    if (overlaps > 6) problems.push(`${overlaps / 2} pairs of cars sit on top of each other`);
+    if (!turns) problems.push('no car ever turned at a junction');
+    const slanted = B_LANES.filter(L => L.seg.axis === 'd').length;
+    return { problems, turns, respawns, cars: BL.vehicles.length, slanted };
+  });
+  report('city', 'traffic turns at junctions and never pops', traffic.problems, `${traffic.cars} cars, ${traffic.turns} turns, ${traffic.respawns} off-screen respawns, ${traffic.slanted} slanting lanes`);
+
   // Walk a bot to every postcard and check it gets stamped; render all views as it goes.
   const walk = await page.evaluate(quick => {
     const problems = [];
@@ -389,6 +418,8 @@ async function suiteShots(browser) {
     { name: 'vijayanagar', st: 'vijayanagar' },
     { name: 'gali-anjaneya', pc: 'anjaneya' },
     { name: 'chinnaswamy', pc: 'stadium' },
+    { name: 'race-course', pc: 'racecourse' },
+    { name: 'race-course-drone', pc: 'racecourse', view: 'drone', dy: -60 },
     { name: 'ub-city-kingfisher', pc: 'kingfisher', dy: -30 },
     { name: 'hard-rock-cafe', pc: 'hardrock' },
     { name: 'ksr-train', pc: 'ksr', dy: -260, extra: 'train' },
@@ -416,6 +447,8 @@ async function suiteShots(browser) {
     { name: 'metro-underground', st: 'majestic', extra: 'ride', to: ['purple', 'vidhana'] },
     { name: 'metro-underground-outside', st: 'majestic', extra: 'ride', rideView: 'outside', to: ['purple', 'vidhana'] },
     { name: 'yellow-line', st: 'rvroad', extra: 'ride', to: ['yellow', 'silkboard'] },
+    { name: 'stadium-skyline', st: 'mgroad', extra: 'ride', rideView: 'skyline', to: ['purple', 'cubbon'], ticks: 30 },
+    { name: 'stadium-from-metro', st: 'mgroad', extra: 'ride', rideView: 'outside', to: ['purple', 'cubbon'], ticks: 30 },
     { name: 'auto-ride', pc: 'brigade', extra: 'auto' },
     { name: 'title' },
   ];

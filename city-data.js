@@ -377,7 +377,12 @@ landmark('someshwara', 12.9754, 77.6242, { dy: -95, fw: 96, fd: 40, mcol: '#bdb8
 
 // Race Course, Vidhana Soudha, Cubbon Park.
 landmark('planetarium', 12.9847, 77.5895, { dy: 10, fw: 70, fd: 36, mcol: '#f4f1ea', signs: [{ anchor: 'sign', text: 'PLANETARIUM', size: 3.2, color: '#ffffff' }], pc: { name: 'Nehru Planetarium', fact: 'Opened in 1989; under its 15 metre dome, 210 people watch the stars at noon.', r: 50 } });
-landmark('grandstand', 12.9842, 77.5822, { fw: 216, fd: 30, mcol: '#e9e2d4', icon: 'Race Course', signs: [signAt('BANGALORE TURF CLUB', 110, 43, 3.6)] });
+landmark('grandstand', 12.9842, 77.5822, { dx: -22, dy: 24, fw: 228, fd: 30, mcol: '#e9e2d4', icon: 'Race Course', signs: [signAt('BANGALORE TURF CLUB', 116, 64, 3.6)] });
+// Around the turf: the winning post, starting stalls, the tote board and the stables.
+B_BUILDINGS.push({ spr: 'winpost', x: B_TRACK.x + 58, y: B_TRACK.y + B_TRACK.ry - 2, fw: 4, fd: 3, mcol: null });
+B_BUILDINGS.push({ spr: 'startgate', x: B_TRACK.x - 60, y: B_TRACK.y - B_TRACK.ry + B_TRACK.w + 40, fw: 74, fd: 8, mcol: '#3f8a4c' });
+B_BUILDINGS.push({ spr: 'toteboard', x: B_TRACK.x + 40, y: B_TRACK.y + 30, fw: 62, fd: 6, mcol: '#2b2620' });
+for (const dy of [-70, 0, 70]) B_BUILDINGS.push({ spr: 'stables', x: B_TRACK.x - B_TRACK.rx - 80, y: B_TRACK.y + dy, fw: 108, fd: 16, mcol: '#b5553a' });
 landmark('holidayinn', 12.9815, 77.5780, { dy: -2, fw: 96, fd: 46, mcol: '#e9dfcc', signs: [signAt('HOLIDAY INN', 55, 26, 4.4)], pc: { name: 'Holiday Inn, Race Course Rd', fact: 'A hotel with the racetrack for a neighbour. Room service comes with hoofbeats.', r: 46 } });
 landmark('vidhana', 12.9799, 77.5906, { fw: 356, fd: 60, mcol: '#efe6d2', signs: [{ anchor: 'inscription', text: "GOVERNMENT'S WORK IS GOD'S WORK", size: 3, color: '#3a2a1a', outline: null }], pc: { name: 'Vidhana Soudha', fact: "Karnataka's legislature, finished in 1956 in Bangalore granite. Over the door: Government's Work is God's Work.", r: 70, dy: 14 } });
 landmark('highcourt', 12.9778, 77.5925, { dy: 46, fw: 232, fd: 56, mcol: '#c0473c', pc: { name: 'Karnataka High Court', fact: 'Attara Kacheri, the "eighteen offices". The red building (1868) faces Vidhana Soudha.' } });

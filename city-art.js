@@ -749,6 +749,61 @@ function bPalace3D() {
 }
 
 // M. Chinnaswamy Stadium: an oval bowl of stands in red and gold, cantilever
+// Chinnaswamy from the side, as the metro sees it: the curved outer wall in
+// perspective, red and gold stands rising behind it, the far stands' roofs
+// with solar panels on cantilevered masts, and the floodlight towers.
+function bStadiumSide() {
+  const rx = B_STADIUM.rx, W0 = rx * 2 + 30, H0 = 196, cx = W0 / 2, base = H0 - 4;
+  const Hw = 38;
+  return bcv(W0, H0, (r) => {
+    const rnd = seeded(2008);
+    const bulge = x => Math.sqrt(Math.max(0, 1 - (x / rx) ** 2));
+    const tower = (x, top, front) => {
+      for (let y = top + 14; y < base - (front ? 0 : Hw + 6); y++) { r('#2a2a2e', x - 2, y, 4, 1); if (y % 5 === 0) r('#8a8f96', x - 1, y, 2, 1); }
+      r('#2a2a2e', x - 10, top, 20, 15); r('#4a4f58', x - 9, top + 1, 18, 13);
+      for (let k = 0; k < 3; k++) for (let j = 0; j < 5; j++) r('#fff6d8', x - 8 + j * 3.5 | 0, top + 2 + k * 4, 2, 2);
+    };
+    tower(cx - rx * 0.72 | 0, 4, false); tower(cx + rx * 0.72 | 0, 4, false);
+    // The far stands rising above the wall, rows of seats and a crowd.
+    for (let x = -rx + 2; x <= rx - 2; x++) {
+      const b = bulge(x), top = base - Hw - 6 * b - 22 * b;
+      for (let y = Math.round(top); y < base - Hw - 6 * b + 2; y++) {
+        const row = Math.floor((y - top) / 3);
+        let col = row % 2 ? '#c0392b' : row % 3 === 0 ? '#c9a227' : '#a8312a';
+        if (rnd() < 0.3) col = ['#f1ead8', '#2b2220', '#f2c94c', '#5b8ee0'][Math.floor(rnd() * 4)];
+        r(col, cx + x, y, 1, 1);
+      }
+    }
+    // Roofs over the far stands: solar panels on top, masts and cables.
+    for (let x = -rx + 10; x <= rx - 10; x++) {
+      const b = bulge(x), y0 = Math.round(base - Hw - 30 * b - 10);
+      if (Math.abs(x) < rx * 0.18) continue;
+      r('#3a3530', cx + x, y0 - 1, 1, 1);
+      for (let k = 0; k < 6; k++) r(k < 1 ? '#f4f6f8' : (Math.floor(x / 5) + k) % 2 ? '#2f4f8a' : '#3a5f9e', cx + x, y0 + k, 1, 1);
+      r('#c9ced2', cx + x, y0 + 6, 1, 1);
+      if (Math.abs(x) % 26 === 0) { for (let y = y0 - 14; y < y0 + 16; y++) r('#8a8f96', cx + x, y, 1, 1); for (let i = 0; i < 14; i++) r('#b8bec6', cx + x + Math.round(i * 1.4) * Math.sign(x || 1), y0 - 14 + i, 1, 1); }
+    }
+    // The outer wall, curving towards us in the middle.
+    const ramp = ['#4a4740', '#6e6a62', '#8a857a', '#a8a294', '#c4bfb2', '#d9d4c8'];
+    for (let x = -rx; x <= rx; x++) {
+      const b = bulge(x), yb = Math.round(base - 6 + 6 * b), nx = x / rx;
+      const v = nx * LIGHT[0] + Math.sqrt(1 - nx * nx) * LIGHT[2] + 0.2;
+      const top = yb - Hw - Math.round(6 * b) + 6;
+      for (let y = top; y <= yb; y++) r(rampAt(ramp, v, x + 400, y), cx + x, y, 1, 1);
+      r('#3a3530', cx + x, top - 1, 1, 1); r('#3a3530', cx + x, yb + 1, 1, 1);
+      r('#c0392b', cx + x, top + 6, 1, 3);
+      // Gates and windows along the wall.
+      const ax = Math.abs(x) % 30;
+      if (Math.abs(x) < rx - 10) {
+        if (ax < 8) for (let y = yb - 12; y <= yb; y++) r('#2b2620', cx + x, y, 1, 1);
+        else if (ax > 13 && ax < 24) for (let y = top + 13; y < top + 18; y++) r('#3a4a58', cx + x, y, 1, 1);
+      }
+    }
+    for (let x = -rx; x <= rx; x++) if (Math.abs(x) === rx) for (let y = base - Hw - 2; y < base; y++) r('#3a3530', cx + x, y, 1, 1);
+    tower(cx - rx * 0.5 | 0, 22, true); tower(cx + rx * 0.5 | 0, 22, true);
+  });
+}
+
 // roofs with solar panels over the far side, four tall floodlight towers.
 function bStadium3D() {
   const S = B_STADIUM, Hs = 34;
@@ -1046,7 +1101,7 @@ const B_DEPTH = {
   highcourt: [44], library: [30, 20], holidayinn: [40], ksr: [44], busstand: [40], freedom: [34, 6], townhall: [40],
   museum: [32], stmarks: [36, 32], ubcity: [56], krmarket: [26], fort: [18], tipu: [38],
   vidyarthi: [20], cinema: [28], mtr: [22], darshini: [14], complex: [32], bakery: [18],
-  glasshouse: [44], grandstand: [24], hardrock: [30], orion: [36],
+  glasshouse: [44], grandstand: [30], stables: [22], toteboard: [6], hardrock: [30], orion: [36],
   gurudwara: [30, 32], mhouse: [16],
 };
 
@@ -1155,18 +1210,62 @@ const B_ART = {
     r('#bdb5a5', 30, 122, 50, 7); r('#a39b8a', 30, 128, 50, 1);
   }),
 
-  grandstand: () => bcv(220, 50, (r) => {
+  // The Bangalore Turf Club grandstand: raked stands under a cantilevered
+  // roof, a clock tower in the middle, and the members' enclosure in front.
+  grandstand: () => bcv(232, 72, (r) => {
     const O = '#3a3530', RF = '#ece6da', RF2 = '#c7bfb0', crowd = ['#d8433b', '#f2c94c', '#5b8ee0', '#f1ead8', '#7cc35a', '#c3a0ec', '#2b2220'];
-    const rnd = seeded(77);
-    r(O, 4, 12, 212, 30); r('#9a948a', 5, 13, 210, 28);
-    for (let k = 0; k < 7; k++) {
-      const y = 14 + k * 4;
-      r('#b5ada0', 5, y, 210, 1);
-      for (let x = 6; x < 214; x += 2) if (rnd() < 0.75) r(crowd[Math.floor(rnd() * crowd.length)], x, y + 1, 1, 2);
+    const rnd = seeded(1920);
+    // Clock tower.
+    r(O, 100, 0, 32, 30); r('#efe6d2', 101, 1, 30, 29); r('#cfc4b2', 101, 1, 30, 2);
+    r(O, 108, 6, 16, 16); r('#ffffff', 109, 7, 14, 14); r(O, 115, 9, 2, 6); r(O, 115, 14, 5, 2);
+    // Roof on slender columns over the stands.
+    r(O, 2, 20, 228, 9); r(RF, 3, 21, 226, 4); r(RF2, 3, 25, 226, 3);
+    for (let x = 6; x < 226; x += 22) { r(O, x, 29, 2, 26); r('#8a8f96', x, 29, 1, 26); }
+    // Tiers of seats with a racing crowd.
+    r(O, 4, 30, 224, 26); r('#9a948a', 5, 31, 222, 24);
+    for (let k = 0; k < 6; k++) {
+      const y = 32 + k * 4;
+      r('#b5ada0', 5, y, 222, 1);
+      for (let x = 6; x < 226; x += 2) if (rnd() < 0.78) r(crowd[Math.floor(rnd() * crowd.length)], x, y + 1, 1, 2);
     }
-    for (const x of [8, 60, 110, 160, 210]) { r(O, x - 1, 6, 3, 34); r(RF2, x, 6, 1, 33); }
-    r(O, 2, 2, 216, 8); r(RF, 3, 3, 214, 4); r(RF2, 3, 7, 214, 2);
-    r(O, 4, 40, 212, 9); r('#2f6b3a', 5, 41, 210, 7); r('#3f8a4c', 5, 41, 210, 1);
+    // Front wall of the enclosure, with the club's green and a rail.
+    r(O, 4, 56, 224, 15); r('#2f6b3a', 5, 57, 222, 13); r('#3f8a4c', 5, 57, 222, 1);
+    for (let x = 12; x < 222; x += 18) { r('#244f2c', x, 60, 8, 8); r('#ffd98a', x + 1, 61, 6, 6); }
+    r('#f4f1ea', 0, 70, 232, 2);
+  }),
+
+  // The winning post on the home straight, with the judge's box.
+  winpost: () => bcv(18, 40, (r) => {
+    const O = '#2b2220';
+    r(O, 0, 0, 14, 12); r('#f4f1ea', 1, 1, 12, 10); r('#3a4a58', 3, 3, 8, 5);
+    r(O, 6, 12, 3, 28); r('#ffffff', 7, 12, 1, 28);
+    for (let y = 14; y < 40; y += 6) r('#d8433b', 7, y, 1, 3);
+    for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) if (Math.hypot(dx, dy) <= 4) r(Math.hypot(dx, dy) > 3 ? O : '#d8433b', 14 + dx, 17 + dy, 1, 1);
+  }),
+
+  // Starting stalls, parked by the back straight.
+  startgate: () => bcv(74, 26, (r) => {
+    const O = '#1f3a24';
+    r(O, 0, 0, 74, 6); r('#3f8a4c', 1, 1, 72, 4);
+    for (let x = 0; x < 74; x += 9) { r(O, x, 6, 2, 18); r('#7cc35a', x, 6, 1, 18); }
+    for (let x = 2; x < 72; x += 9) { r('#d9d2c4', x, 9, 7, 1); r('#ffffff', x + 2, 2, 3, 3); }
+    r(O, 0, 23, 74, 3);
+  }),
+
+  // The tote board in the infield, lit with the odds.
+  toteboard: () => bcv(70, 44, (r) => {
+    const O = '#1d1816';
+    r(O, 4, 0, 62, 32); r('#2b2620', 5, 1, 60, 30); r('#f4f1ea', 5, 1, 60, 3);
+    for (let row = 0; row < 4; row++) for (let col = 0; col < 7; col++) r((row + col) % 3 ? '#f2c94c' : '#ee8b3a', 8 + col * 8, 7 + row * 6, 5, 3);
+    for (const x of [14, 54]) { r(O, x, 32, 3, 12); r('#8a8f96', x, 32, 1, 12); }
+  }),
+
+  // A row of stables with red tiled roofs and half doors.
+  stables: () => bcv(110, 30, (r) => {
+    const O = '#3a2a22';
+    r(O, 0, 4, 110, 10); r('#b5553a', 1, 5, 108, 8); for (let y = 7; y < 13; y += 2) r('#8a3a28', 1, y, 108, 1);
+    r(O, 2, 14, 106, 16); r('#efe2c0', 3, 15, 104, 14);
+    for (let x = 6; x < 104; x += 13) { r(O, x, 17, 8, 12); r('#6b4a32', x + 1, 18, 6, 5); r('#3a2618', x + 1, 23, 6, 6); }
   }),
 
   glasshouse: () => bcv(210, 80, (r) => {
@@ -1296,6 +1395,7 @@ const B_ART = {
   // slate spires, pointed Gothic windows and ivy on the walls.
   palace: () => bPalace3D(),
   stadium: () => bStadium3D(),
+  stadiumSide: () => bStadiumSide(),
   kingfisher: () => bKingfisher3D(),
   iskcon: () => bIskcon3D(),
   wtc: () => bWtc3D(),
